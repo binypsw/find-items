@@ -1,0 +1,59 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "API (FastAPI + uvicorn --reload)",
+      "runtimeExecutable": "docker",
+      "runtimeArgs": ["compose", "up", "api"],
+      "port": 8000
+    },
+    {
+      "name": "Worker (Celery worker)",
+      "runtimeExecutable": "docker",
+      "runtimeArgs": ["compose", "up", "worker"],
+      "port": null
+    },
+    {
+      "name": "Beat (Celery scheduler)",
+      "runtimeExecutable": "docker",
+      "runtimeArgs": ["compose", "up", "beat"],
+      "port": null
+    },
+    {
+      "name": "Frontend (Vite dev server)",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 5173
+    },
+    {
+      "name": "Frontend (nginx, served via Docker)",
+      "runtimeExecutable": "docker",
+      "runtimeArgs": ["compose", "up", "frontend"],
+      "port": 3001
+    },
+    {
+      "name": "Postgres (pgvector/pg16)",
+      "runtimeExecutable": "docker",
+      "runtimeArgs": ["compose", "up", "postgres"],
+      "port": 15432
+    },
+    {
+      "name": "Redis",
+      "runtimeExecutable": "docker",
+      "runtimeArgs": ["compose", "up", "redis"],
+      "port": 6379
+    },
+    {
+      "name": "Browserless (Playwright CDP)",
+      "runtimeExecutable": "docker",
+      "runtimeArgs": ["compose", "up", "browserless"],
+      "port": 3000
+    },
+    {
+      "name": "All services (docker compose up)",
+      "runtimeExecutable": "docker",
+      "runtimeArgs": ["compose", "up"],
+      "port": null
+    }
+  ]
+}

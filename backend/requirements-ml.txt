@@ -1,0 +1,11 @@
+# ML / NLP — install separately (heavy, needed from Phase 4)
+# Install with: pip install -r requirements-ml.txt --extra-index-url https://download.pytorch.org/whl/cpu
+sentence-transformers==3.2.*
+torch==2.5.*
+
+# LLM providers (free tier, multi-tier fallback)
+google-genai==0.3.*
+openai==1.54.*
+
+# Currency conversion
+forex-python==1.8

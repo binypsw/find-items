@@ -1,0 +1,49 @@
+services:
+  postgres:
+    restart: unless-stopped
+
+  redis:
+    restart: unless-stopped
+
+  browserless:
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: api/Dockerfile
+    volumes: []
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --workers 2
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: worker/Dockerfile
+    volumes:
+      - hf_cache:/root/.cache/huggingface
+    restart: unless-stopped
+
+  beat:
+    restart: unless-stopped
+
+  frontend:
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - frontend
+      - api
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:
