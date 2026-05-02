@@ -38,5 +38,12 @@
   "col_last_used": "Last Used",
   "tier_label": "Tier",
   "health_label": "Health",
-  "budget_label": "Budget"
+  "budget_label": "Budget",
+  "results_count": "results",
+  "filter_all": "All",
+  "condition_new": "New",
+  "condition_used": "Used",
+  "sort_score": "Best match",
+  "sort_price_asc": "Price ↑",
+  "sort_price_desc": "Price ↓"
 }

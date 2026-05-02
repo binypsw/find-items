@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { useQuery } from "@tanstack/react-query";
-import { getTopListings, getSearchRuns } from "../api/client";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { getTopListings, getSearchRuns, runSearch } from "../api/client";
 import { ProductCard } from "./ProductCard";
-import type { ScrapeRun } from "../types";
+import type { RankedListing, ScrapeRun } from "../types";
 
 const COLORS = {
   primary: "#2563eb",
@@ -98,6 +98,9 @@ export function ResultsDashboard({ selectedSearchId }: ResultsDashboardProps) {
   );
 }
 
+type SortKey = "score" | "price_asc" | "price_desc";
+type ConditionFilter = "all" | "new" | "used";
+
 function ResultsTab({
   searchId,
   t,
@@ -106,59 +109,149 @@ function ResultsTab({
   lang: string;
   t: (key: string) => string;
 }) {
+  const qc = useQueryClient();
+  const [sort, setSort] = useState<SortKey>("score");
+  const [condFilter, setCondFilter] = useState<ConditionFilter>("all");
+
   const { data, isLoading } = useQuery({
     queryKey: ["top-listings", searchId],
-    queryFn: () => getTopListings(searchId, 20),
+    queryFn: () => getTopListings(searchId, 50),
     enabled: searchId > 0,
+    refetchInterval: 8000,
   });
+
+  const runMut = useMutation({
+    mutationFn: () => runSearch(searchId),
+    onSuccess: () => {
+      setTimeout(() => qc.invalidateQueries({ queryKey: ["top-listings", searchId] }), 2000);
+    },
+  });
+
+  const sorted = useMemo<RankedListing[]>(() => {
+    if (!data) return [];
+    let list = condFilter === "all" ? data : data.filter((l) => l.condition === condFilter);
+    if (sort === "price_asc") return [...list].sort((a, b) => a.current_price_thb - b.current_price_thb);
+    if (sort === "price_desc") return [...list].sort((a, b) => b.current_price_thb - a.current_price_thb);
+    return [...list].sort((a, b) => b.score - a.score);
+  }, [data, sort, condFilter]);
 
   if (isLoading) {
     return (
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
-          gap: "1rem",
-        }}
-      >
-        {[1, 2, 3].map((i) => (
-          <SkeletonCard key={i} />
-        ))}
+      <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+        <div style={{ height: 36, background: "#e5e7eb", borderRadius: 8, width: "100%" }} />
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: "1rem" }}>
+          {[1, 2, 3].map((i) => <SkeletonCard key={i} />)}
+        </div>
       </div>
     );
   }
 
-  if (!data || data.length === 0) {
-    return (
+  const hasData = data && data.length > 0;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+      {/* Controls row */}
       <div
         style={{
           display: "flex",
           alignItems: "center",
-          justifyContent: "center",
-          padding: "3rem",
-          color: COLORS.muted,
-          fontSize: "0.938rem",
-          flexDirection: "column",
           gap: "0.5rem",
+          flexWrap: "wrap",
+          padding: "0.5rem 0",
         }}
       >
-        <span style={{ fontSize: "2.5rem" }}>🔍</span>
-        <span>{t("no_results")}</span>
-      </div>
-    );
-  }
+        {/* Result count */}
+        <span style={{ fontSize: "0.813rem", color: COLORS.muted, marginRight: "auto" }}>
+          {hasData ? `${sorted.length} / ${data!.length} ${t("results_count") || "results"}` : ""}
+        </span>
 
-  return (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
-        gap: "1rem",
-      }}
-    >
-      {data.map((listing) => (
-        <ProductCard key={listing.id} listing={listing} />
-      ))}
+        {/* Condition filter */}
+        {(["all", "new", "used"] as ConditionFilter[]).map((c) => (
+          <button
+            key={c}
+            onClick={() => setCondFilter(c)}
+            style={{
+              padding: "0.25rem 0.6rem",
+              borderRadius: 6,
+              border: `1.5px solid ${condFilter === c ? COLORS.primary : COLORS.border}`,
+              background: condFilter === c ? COLORS.primary + "14" : "transparent",
+              color: condFilter === c ? COLORS.primary : COLORS.muted,
+              fontSize: "0.75rem",
+              fontWeight: condFilter === c ? 700 : 400,
+              cursor: "pointer",
+            }}
+          >
+            {c === "all" ? (t("filter_all") || "All") : c === "new" ? (t("condition_new") || "New") : (t("condition_used") || "Used")}
+          </button>
+        ))}
+
+        {/* Sort */}
+        <select
+          value={sort}
+          onChange={(e) => setSort(e.target.value as SortKey)}
+          style={{
+            padding: "0.25rem 0.5rem",
+            borderRadius: 6,
+            border: `1.5px solid ${COLORS.border}`,
+            fontSize: "0.75rem",
+            color: COLORS.text,
+            background: COLORS.card,
+            cursor: "pointer",
+          }}
+        >
+          <option value="score">{t("sort_score") || "Best match"}</option>
+          <option value="price_asc">{t("sort_price_asc") || "Price: low → high"}</option>
+          <option value="price_desc">{t("sort_price_desc") || "Price: high → low"}</option>
+        </select>
+
+        {/* Run now */}
+        <button
+          onClick={() => runMut.mutate()}
+          disabled={runMut.isPending}
+          style={{
+            padding: "0.25rem 0.7rem",
+            borderRadius: 6,
+            background: runMut.isPending ? COLORS.muted : COLORS.success,
+            color: "#fff",
+            border: "none",
+            fontSize: "0.75rem",
+            fontWeight: 600,
+            cursor: runMut.isPending ? "not-allowed" : "pointer",
+          }}
+        >
+          {runMut.isPending ? "..." : (t("run_btn") || "Run")}
+        </button>
+      </div>
+
+      {!hasData ? (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "3rem",
+            color: COLORS.muted,
+            fontSize: "0.938rem",
+            flexDirection: "column",
+            gap: "0.5rem",
+          }}
+        >
+          <span style={{ fontSize: "2.5rem" }}>🔍</span>
+          <span>{t("no_results")}</span>
+        </div>
+      ) : (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
+            gap: "1rem",
+          }}
+        >
+          {sorted.map((listing) => (
+            <ProductCard key={listing.id} listing={listing} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

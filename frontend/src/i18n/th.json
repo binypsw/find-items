@@ -38,5 +38,12 @@
   "col_last_used": "ใช้ล่าสุด",
   "tier_label": "ระดับ",
   "health_label": "สุขภาพ",
-  "budget_label": "งบประมาณ"
+  "budget_label": "งบประมาณ",
+  "results_count": "ผลลัพธ์",
+  "filter_all": "ทั้งหมด",
+  "condition_new": "ใหม่",
+  "condition_used": "มือสอง",
+  "sort_score": "ตรงที่สุด",
+  "sort_price_asc": "ราคา ↑",
+  "sort_price_desc": "ราคา ↓"
 }

@@ -19,6 +19,9 @@ const SOURCE_COLORS: Record<string, string> = {
   shopee: "#f97316",
   lazada: "#2563eb",
   kaidee: "#16a34a",
+  jib: "#dc2626",
+  advice: "#7c3aed",
+  priceza: "#0891b2",
 };
 
 const CONDITION_COLORS: Record<string, string> = {
