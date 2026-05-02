@@ -134,9 +134,11 @@ async def _scrape_source_async(task, search_id: int, source_id: str, run_id: int
         if isinstance(parsed, str):
             parsed = json.loads(parsed)
         query = StructuredQuery(
-            keywords=parsed.get("keywords", [search.raw_query]),
+            raw_query=search.raw_query,  # always pass original query for normalize_keywords
+            keywords=parsed.get("keywords") or [search.raw_query],
             keywords_th=parsed.get("keywords_th", []),
             keywords_en=parsed.get("keywords_en", []),
+            category=parsed.get("category"),
             max_price_thb=Decimal(str(parsed["max_price_thb"])) if parsed.get("max_price_thb") else None,
             min_price_thb=Decimal(str(parsed["min_price_thb"])) if parsed.get("min_price_thb") else None,
             location=parsed.get("location"),
@@ -144,6 +146,14 @@ async def _scrape_source_async(task, search_id: int, source_id: str, run_id: int
 
         scraper = get_scraper(source_id, db)
         if not scraper:
+            # Mark run as FAILED — don't leave it stuck in RUNNING
+            run = await db.get(ScrapeRun, run_id)
+            if run:
+                run.status = ScrapeRunStatus.FAILED
+                run.errors = {"error": f"No scraper plugin for source '{source_id}' — not yet implemented"}
+                run.finished_at = datetime.now(timezone.utc)
+                await db.commit()
+            log.warning("scrape_source.plugin_not_found", source_id=source_id)
             return {"status": "plugin_not_found", "source_id": source_id}
 
         items_found = items_new = items_updated = 0

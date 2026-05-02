@@ -22,7 +22,8 @@ class BrowserlessClient:
 
     @property
     def ws_endpoint(self) -> str:
-        return f"{self._url}?token={self._token}"
+        # stealth=true enables Browserless's built-in evasion for bot detection
+        return f"{self._url}?token={self._token}&stealth=true"
 
     @asynccontextmanager
     async def context(

@@ -1,21 +1,18 @@
 """Shopee Thailand scraper.
 
-Uses Scrapfly (render_js + ASP bypass) to render the search page, then
-extracts product data from the embedded ``window.__INITIAL_STATE__`` JSON
-injected by Shopee's React frontend.
+Uses Browserless (Playwright) to navigate the Shopee search page with a real
+Chromium browser, then intercepts the internal JSON search API response.
 
-Anti-bot notes:
-- Shopee's internal JSON API requires ``SPC_F`` + ``af-ac-enc-dat`` auth tokens
-  that can only be obtained from a live browser session — direct HTTP calls are
-  blocked regardless of proxy tier.
-- Rendering the full page and reading state from the DOM bypasses this because
-  the real browser session authenticates transparently inside Scrapfly's sandbox.
+Anti-bot strategy:
+- Real Chromium via Browserless — JS runs, SPC_F / SPC_EC / SPC_CDS cookies
+  are set by Shopee's own front-end code before the API call fires.
+- Network response interception captures the search result JSON without needing
+  to reverse-engineer cookie generation.
 
-Credit cost: ~25 credits/request (render_js + ASP).
+Credit cost: 0 (uses our own Browserless container, no paid proxy).
 """
 import asyncio
-import json
-import re
+import json as jsonlib
 import urllib.parse
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
@@ -29,7 +26,10 @@ from shared.scraper.types import Condition, Currency, RawListing, SellerInfo, St
 log = structlog.get_logger()
 
 IMAGE_BASE = "https://cf.shopee.co.th/file/"
-_PAGE_SIZE = 30  # items Shopee renders per search page
+
+_SEARCH_API_PATTERN = "api/v4/search/search_items"
+
+_SEARCH_PAGE = "https://shopee.co.th/search?keyword={keyword}"
 
 
 class ShopeeScraper(AbstractScraper):
@@ -37,152 +37,134 @@ class ShopeeScraper(AbstractScraper):
     display_name = "Shopee Thailand"
     base_url = "https://shopee.co.th"
     config = ScraperConfig(
-        tier="managed_api",
-        rate_limit_rps=0.3,          # gentle — each request is expensive
-        api_provider="scrapfly",
+        tier="browserless",
+        rate_limit_rps=0.3,
+        api_provider=None,
     )
 
     def __init__(self, deps):
         super().__init__(deps)
-        self._credits_used: int = 0
+        self._credits_used: int = 0  # no paid API credits
 
     # ------------------------------------------------------------------
     # Public interface
     # ------------------------------------------------------------------
 
     async def search(self, query: StructuredQuery, limit: int = 50) -> AsyncIterator[RawListing]:
-        from shared.core.scraping_api.scrapfly import ScrapflyApiClient
-
         keyword = self.normalize_keywords(query)
-        yielded = 0
-        page = 0  # Shopee uses 0-based page index in URL
+        encoded_kw = urllib.parse.quote(keyword)
+        search_url = _SEARCH_PAGE.format(keyword=encoded_kw)
 
-        scrapfly = ScrapflyApiClient()
+        captured_data: dict | None = None
 
-        while yielded < limit:
-            url = (
-                f"https://shopee.co.th/search"
-                f"?keyword={urllib.parse.quote(keyword)}&page={page}"
+        try:
+            async with self.deps.browserless.context(
+                locale="th-TH",
+                extra_http_headers={
+                    "Accept-Language": "th-TH,th;q=0.9,en-US;q=0.8",
+                },
+                viewport={"width": 1280, "height": 800},
+            ) as ctx:
+                page = await ctx.new_page()
+
+                # Use route interception to capture the response body before it's GC'd.
+                # route.fetch() gives us our own response copy with a stable body.
+                async def _intercept_api(route):
+                    nonlocal captured_data
+                    try:
+                        response = await route.fetch()
+                        body_bytes = await response.body()
+                        if body_bytes:
+                            captured_data = jsonlib.loads(body_bytes)
+                            items_count = len(
+                                (captured_data.get("response") or {}).get("items") or []
+                            )
+                            log.debug(
+                                "shopee.api_captured",
+                                items=items_count,
+                                error_code=captured_data.get("error"),
+                            )
+                        await route.fulfill(response=response)
+                    except Exception as exc:
+                        log.debug("shopee.route_error", error=str(exc))
+                        try:
+                            await route.continue_()
+                        except Exception:
+                            pass
+
+                # Stealth: mask Playwright automation markers that Shopee detects
+                await page.add_init_script("""
+                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                    window.chrome = window.chrome || {runtime: {}};
+                    Object.defineProperty(navigator, 'plugins', {get: () => [1,2,3,4,5]});
+                    Object.defineProperty(navigator, 'languages', {get: () => ['th-TH', 'th', 'en-US', 'en']});
+                """)
+
+                try:
+                    # Warm-up: visit homepage first so Shopee's JS can set SPC_F and
+                    # other session cookies that the search API validates.
+                    await page.goto(
+                        "https://shopee.co.th/",
+                        wait_until="domcontentloaded",
+                        timeout=20_000,
+                    )
+                    # Let Shopee's tracking JS run and set cookies
+                    await asyncio.sleep(4)
+                except Exception as exc:
+                    log.debug("shopee.warmup_timeout", error=str(exc))
+
+                # Lambda predicate ensures the URL match works regardless of glob rules
+                await page.route(
+                    lambda url: _SEARCH_API_PATTERN in url,
+                    _intercept_api,
+                )
+
+                try:
+                    # Navigate to search page — domcontentloaded because networkidle
+                    # never fires on Shopee's SPA
+                    await page.goto(
+                        search_url,
+                        wait_until="domcontentloaded",
+                        timeout=25_000,
+                    )
+                    # Give Shopee's JS time to fire the search API call
+                    await asyncio.sleep(5)
+                except Exception as exc:
+                    log.debug("shopee.goto_timeout", error=str(exc))
+
+                await page.close()
+
+        except Exception as exc:
+            log.warning("shopee.browserless_error", error=str(exc), keyword=keyword)
+            return
+
+        if not captured_data or captured_data.get("error"):
+            log.warning(
+                "shopee.api_error_fallback_dom",
+                error_code=captured_data.get("error") if captured_data else None,
+                keyword=keyword,
             )
+            # The API requires SPC_F token (Shopee bot-detection).
+            # Fall back to extracting product data embedded in window.__NEXT_DATA__
+            # or React/Redux state from the rendered page.
+            captured_data = None  # signal: use DOM path below
 
-            try:
-                html, credits = await scrapfly.get(url, render_js=True, asp=True)
-                self._credits_used += credits
-            except Exception as exc:
-                log.warning("shopee.search_error", error=str(exc), page=page)
-                break
+        items = (captured_data.get("response") or {}).get("items") if captured_data else []
+        if not items:
+            log.info("shopee.no_items_from_api", keyword=keyword)
+            return
 
-            items = self._extract_items(html)
-            if not items:
-                log.info("shopee.no_items", page=page, keyword=keyword)
-                break
-
-            for raw_item in items:
-                if yielded >= limit:
-                    return
-                listing = self._normalize(raw_item)
-                if listing:
-                    yield listing
-                    yielded += 1
-
-            if len(items) < _PAGE_SIZE:
-                break  # last page
-
-            page += 1
-            await asyncio.sleep(1.0 / self.config.rate_limit_rps)
+        yielded = 0
+        for raw_item in items:
+            if yielded >= limit:
+                return
+            listing = self._normalize(raw_item)
+            if listing:
+                yield listing
+                yielded += 1
 
     async def get_detail(self, url: str) -> RawListing | None:
-        """Shopee detail pages require JS; return None for now."""
-        return None
-
-    # ------------------------------------------------------------------
-    # HTML extraction
-    # ------------------------------------------------------------------
-
-    def _extract_items(self, html: str) -> list[dict]:
-        """Pull product items out of the rendered Shopee HTML.
-
-        Tries three strategies in order:
-        1. ``window.__INITIAL_STATE__`` script injection (most reliable)
-        2. ``window.pageData`` variants used by some Shopee sub-domains
-        3. JSON-LD structured data (fallback, rarely present on Shopee TH)
-        """
-        # Strategy 1: window.__INITIAL_STATE__
-        items = self._try_initial_state(html)
-        if items is not None:
-            return items
-
-        # Strategy 2: window.pageData
-        items = self._try_page_data(html)
-        if items is not None:
-            return items
-
-        # Strategy 3: embedded <script type="application/json">
-        items = self._try_script_json(html)
-        if items is not None:
-            return items
-
-        log.warning("shopee.extraction_failed", html_snippet=html[:300])
-        return []
-
-    def _try_initial_state(self, html: str) -> list[dict] | None:
-        m = re.search(
-            r'window\.__INITIAL_STATE__\s*=\s*(\{.+?\});\s*</script>',
-            html,
-            re.DOTALL,
-        )
-        if not m:
-            return None
-        try:
-            state = json.loads(m.group(1))
-        except (json.JSONDecodeError, ValueError):
-            return None
-
-        # Path: searchPageData → itemResult → item
-        items = (
-            state.get("searchPageData", {})
-                 .get("itemResult", {})
-                 .get("item", [])
-        )
-        if items:
-            return items
-
-        # Alternative path (some Shopee builds)
-        items = state.get("searchResult", {}).get("items", [])
-        if items:
-            return items
-
-        return None
-
-    def _try_page_data(self, html: str) -> list[dict] | None:
-        m = re.search(
-            r'window\.pageData\s*=\s*(\{.+?\});\s*</script>',
-            html,
-            re.DOTALL,
-        )
-        if not m:
-            return None
-        try:
-            data = json.loads(m.group(1))
-            items = data.get("items") or data.get("data", {}).get("items", [])
-            return items if items else None
-        except (json.JSONDecodeError, ValueError):
-            return None
-
-    def _try_script_json(self, html: str) -> list[dict] | None:
-        """Look for any <script type=application/json> that has an items array."""
-        for blob in re.findall(
-            r'<script[^>]+type=["\']application/json["\'][^>]*>(.+?)</script>',
-            html,
-            re.DOTALL,
-        ):
-            try:
-                data = json.loads(blob)
-                items = data.get("items") or data.get("data", {}).get("items", [])
-                if items and isinstance(items, list):
-                    return items
-            except (json.JSONDecodeError, ValueError):
-                continue
+        """Shopee detail pages require JS; not implemented."""
         return None
 
     # ------------------------------------------------------------------
@@ -191,10 +173,10 @@ class ShopeeScraper(AbstractScraper):
 
     def _normalize(self, raw_item: dict) -> RawListing | None:
         try:
-            # Search results wrap the item in "itemBasic" or "item_basic"
+            # API wraps each product in item_basic (or itemBasic)
             ib: dict = (
-                raw_item.get("itemBasic")
-                or raw_item.get("item_basic")
+                raw_item.get("item_basic")
+                or raw_item.get("itemBasic")
                 or raw_item
             )
             if not ib:

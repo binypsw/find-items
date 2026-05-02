@@ -49,10 +49,25 @@ class AbstractScraper(ABC):
             return False
 
     def normalize_keywords(self, query: StructuredQuery) -> str:
-        """Convert StructuredQuery to search string accepted by source.
-        Default: join keywords with space. Override in plugins with special syntax.
+        """Convert StructuredQuery to a single search string for the source.
+
+        Strategy (Thai-first, no duplication):
+        1. If raw_query is set, use it directly — it's exactly what the user typed
+           and is already a well-formed Thai/English mixed query.
+        2. Fallback: join keywords_th (avoids repeating both Thai + English variants).
+        3. Fallback: join keywords_en.
+        4. Fallback: join all keywords.
+
+        Subclasses may override for source-specific syntax (e.g. strip condition words,
+        add category prefix, etc.).
         """
-        return " ".join(query.keywords)
+        if query.raw_query:
+            return query.raw_query.strip()
+        if query.keywords_th:
+            return " ".join(query.keywords_th).strip()
+        if query.keywords_en:
+            return " ".join(query.keywords_en).strip()
+        return " ".join(query.keywords).strip()
 
 
 class ScraperDependencies:

@@ -16,6 +16,13 @@ from shared.scraper.types import Condition, Currency, RawListing, SellerInfo, St
 
 BANGKOK_TZ = timezone.utc  # store all times in UTC
 
+# Condition words that Kaidee handles via its own filter — strip from keyword string
+# so we don't confuse the search engine (e.g. "มือสอง" in keyword → wrong category)
+_CONDITION_WORDS = {
+    "มือสอง", "มือหนึ่ง", "ของใหม่", "ใหม่", "สภาพมือสอง",
+    "used", "new", "refurbished", "second hand", "secondhand", "pre-owned",
+}
+
 _CONDITION_MAP = {
     "มือสอง": Condition.USED,
     "used": Condition.USED,
@@ -33,6 +40,28 @@ _HEADERS = {
 
 _PAGE_SIZE = 24  # Kaidee returns 24 ads per page
 
+# Kaidee category slugs for LLM-detected categories
+# Maps parsed_query["category"] → Kaidee browse category param
+_CATEGORY_MAP = {
+    "ram": "computer",
+    "gpu": "computer",
+    "cpu": "computer",
+    "laptop": "computer",
+    "notebook": "computer",
+    "desktop": "computer",
+    "ssd": "computer",
+    "hdd": "computer",
+    "monitor": "computer",
+    "computer": "computer",
+    "smartphone": "mobile-phone",
+    "phone": "mobile-phone",
+    "mobile": "mobile-phone",
+    "tablet": "tablet",
+    "camera": "camera",
+    "tv": "tv-audio-video",
+    "television": "tv-audio-video",
+}
+
 
 class KaideeScraper(AbstractScraper):
     source_id = "kaidee"
@@ -41,6 +70,20 @@ class KaideeScraper(AbstractScraper):
     config = ScraperConfig(tier="direct", rate_limit_rps=0.5)
 
     _build_id: str | None = None  # class-level cache; refreshed on 404
+
+    def normalize_keywords(self, query) -> str:
+        """Kaidee-specific: strip condition words from keyword string.
+
+        Kaidee has its own condition filter param (price_start/price_end + condition
+        are passed separately).  Leaving "มือสอง" in the keyword itself causes Kaidee
+        to fail finding anything and fall back to popular items.
+        """
+        base = super().normalize_keywords(query)
+        # Remove condition words (case-insensitive, whole-word)
+        tokens = base.split()
+        filtered = [t for t in tokens if t.lower() not in _CONDITION_WORDS]
+        result = " ".join(filtered).strip()
+        return result or base  # if all tokens were stripped, keep original
 
     async def _get_build_id(self, session) -> str:
         """Fetch the Next.js build ID from the Kaidee homepage."""
@@ -68,12 +111,18 @@ class KaideeScraper(AbstractScraper):
             # Ensure we have a build ID
             build_id = KaideeScraper._build_id or await self._get_build_id(session)
 
+            # Build relevance check tokens from keyword (for post-fetch filtering)
+            relevance_tokens = [t.lower() for t in keyword.split() if len(t) > 1]
+
             for page in range(1, pages + 1):
                 params = {"keyword": keyword, "page": str(page)}
                 if query.max_price_thb:
                     params["price_end"] = str(int(query.max_price_thb))
                 if query.min_price_thb:
                     params["price_start"] = str(int(query.min_price_thb))
+                # Add category filter if LLM detected a mappable category
+                if query.category and query.category.lower() in _CATEGORY_MAP:
+                    params["category"] = _CATEGORY_MAP[query.category.lower()]
 
                 url = f"https://www.kaidee.com/_next/data/{build_id}/en/browse.json"
 
@@ -105,13 +154,31 @@ class KaideeScraper(AbstractScraper):
                 if not ads:
                     break
 
+                relevant_count = 0
                 for item in ads:
                     if yielded >= limit:
                         return
+                    # Relevance filter: skip items whose title matches none of the
+                    # search tokens. Prevents Kaidee from returning popular items
+                    # (cars, amulets) when the keyword has no matching listings.
+                    title_lower = (item.get("title") or "").lower()
+                    if relevance_tokens and not any(tok in title_lower for tok in relevance_tokens):
+                        continue
                     listing = self._normalize(item)
                     if listing:
                         yield listing
                         yielded += 1
+                        relevant_count += 1
+
+                # If no relevant items found in this page, stop pagination
+                if relevant_count == 0:
+                    self.deps.logger.info(
+                        "kaidee.no_relevant_items",
+                        page=page,
+                        keyword=keyword,
+                        total_ads=len(ads),
+                    )
+                    break
 
                 await asyncio.sleep(1.0 / self.config.rate_limit_rps)
 

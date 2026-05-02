@@ -1,11 +1,16 @@
 """Lazada Thailand scraper.
 
-Uses curl_cffi (Chrome TLS impersonation) with an established browser session
-to access Lazada's internal AJAX catalog endpoint.  A warm-up request to the
-main catalog page is made first so the session carries the required cookies.
+Uses Browserless (Playwright) to navigate the Lazada catalog page with a real
+Chromium browser, then intercepts the internal AJAX catalog API response.
+
+Lazada's bot protection (/punish tmd) requires real JS execution to pass.
+Browserless bypasses this by running a genuine Chrome session.
+
+Credit cost: 0 (uses our own Browserless container, no paid proxy).
 """
 import asyncio
 import re
+import urllib.parse
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import AsyncIterator
@@ -18,99 +23,105 @@ from shared.scraper.types import Condition, Currency, RawListing, SellerInfo, St
 log = structlog.get_logger()
 
 _SEARCH_URL = "https://www.lazada.co.th/catalog/"
-_PAGE_SIZE = 40  # Lazada default items per page
-
-_BASE_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36"
-    ),
-    "Accept-Language": "th-TH,th;q=0.9,en-US;q=0.8",
-    "Referer": "https://www.lazada.co.th/",
-}
-
-_AJAX_HEADERS = {
-    **_BASE_HEADERS,
-    "Accept": "application/json, text/javascript, */*; q=0.01",
-    "X-Requested-With": "XMLHttpRequest",
-}
+_AJAX_PATTERN = "catalog/?ajax=true"  # substring found in intercepted XHR URLs
 
 
 class LazadaScraper(AbstractScraper):
     source_id = "lazada"
     display_name = "Lazada Thailand"
     base_url = "https://www.lazada.co.th"
-    config = ScraperConfig(tier="direct", rate_limit_rps=0.5)
+    config = ScraperConfig(tier="browserless", rate_limit_rps=0.3)
 
     def __init__(self, deps):
         super().__init__(deps)
-        self._credits_used: int = 0  # direct scraper, no paid API credits
+        self._credits_used: int = 0  # no paid API credits
 
     # ------------------------------------------------------------------
     # Public interface
     # ------------------------------------------------------------------
 
     async def search(self, query: StructuredQuery, limit: int = 50) -> AsyncIterator[RawListing]:
-        from curl_cffi.requests import AsyncSession
-
         keyword = self.normalize_keywords(query)
-        yielded = 0
-        page = 1
+        encoded_kw = urllib.parse.quote(keyword)
+        search_url = f"{_SEARCH_URL}?q={encoded_kw}&ajax=true"
+        page_url = f"{_SEARCH_URL}?q={encoded_kw}"
 
-        async with AsyncSession(impersonate="chrome124") as session:
-            # Warm-up: establish a browser-like session with cookies
-            try:
-                await session.get(
-                    f"{_SEARCH_URL}?q={keyword}",
-                    headers={**_BASE_HEADERS, "Accept": "text/html,application/xhtml+xml"},
-                    timeout=20,
-                )
-            except Exception:
-                pass  # warmup failure is non-fatal
+        captured_data: dict | None = None
 
-            while yielded < limit:
-                params = {
-                    "ajax": "true",
-                    "q": keyword,
-                    "page": str(page),
-                    "sort": "popularity",
-                }
+        try:
+            async with self.deps.browserless.context(
+                locale="th-TH",
+                extra_http_headers={
+                    "Accept-Language": "th-TH,th;q=0.9,en-US;q=0.8",
+                },
+                viewport={"width": 1280, "height": 800},
+            ) as ctx:
+                page = await ctx.new_page()
+
+                # Intercept the AJAX catalog response
+                async def _on_response(response):
+                    nonlocal captured_data
+                    if (
+                        "catalog" in response.url
+                        and "ajax=true" in response.url
+                        and captured_data is None
+                    ):
+                        try:
+                            captured_data = await response.json()
+                            log.debug("lazada.api_intercepted", url=response.url[:120])
+                        except Exception as exc:
+                            log.debug("lazada.intercept_json_error", error=str(exc))
+
+                page.on("response", _on_response)
 
                 try:
-                    r = await session.get(
-                        _SEARCH_URL,
-                        params=params,
-                        headers=_AJAX_HEADERS,
-                        timeout=25,
+                    await page.goto(
+                        page_url,
+                        wait_until="networkidle",
+                        timeout=35_000,
                     )
-                    r.raise_for_status()
-                    data = r.json()
                 except Exception as exc:
-                    self.deps.logger.warning("lazada.search_error", error=str(exc), page=page)
-                    break
+                    log.debug("lazada.goto_timeout", error=str(exc))
 
-                items = (data.get("mods") or {}).get("listItems") or []
-                if not items:
-                    break
+                await page.close()
 
-                for item in items:
-                    if yielded >= limit:
-                        return
-                    listing = self._normalize(item)
-                    if listing:
-                        yield listing
-                        yielded += 1
+        except Exception as exc:
+            log.warning("lazada.browserless_error", error=str(exc), keyword=keyword)
+            return
 
-                if len(items) < _PAGE_SIZE:
-                    break  # last page
+        if not captured_data:
+            log.warning("lazada.no_api_response_captured", keyword=keyword)
+            return
 
-                page += 1
-                await asyncio.sleep(1.0 / self.config.rate_limit_rps)
+        items = (captured_data.get("mods") or {}).get("listItems") or []
+        if not items:
+            log.info("lazada.no_items", keyword=keyword)
+            return
+
+        # Relevance filter: Lazada uses broad OR matching so results often
+        # contain unrelated items. Keep only items whose title contains at
+        # least one meaningful token from the search keyword.
+        relevance_tokens = [t.lower() for t in keyword.split() if len(t) > 1]
+        skipped = 0
+
+        yielded = 0
+        for item in items:
+            if yielded >= limit:
+                return
+            if relevance_tokens:
+                title_lower = (item.get("name", "") or "").lower()
+                if not any(tok in title_lower for tok in relevance_tokens):
+                    skipped += 1
+                    continue
+            listing = self._normalize(item)
+            if listing:
+                yield listing
+                yielded += 1
+
+        if skipped:
+            log.info("lazada.relevance_filtered", skipped=skipped, yielded=yielded, keyword=keyword)
 
     async def get_detail(self, url: str) -> RawListing | None:
-        """Lazada detail pages are JS-heavy; return None and rely on search results."""
-        # TODO: implement via Scrapfly render_js if needed in Phase 4+
         return None
 
     # ------------------------------------------------------------------
@@ -136,7 +147,6 @@ class LazadaScraper(AbstractScraper):
             title = item.get("name", "")
             price = self._parse_price(item.get("price") or item.get("priceShow"))
 
-            # description can be a list of bullet strings or a single string
             raw_desc = item.get("description")
             if isinstance(raw_desc, list):
                 description: str | None = " | ".join(str(d) for d in raw_desc if d) or None
@@ -145,7 +155,6 @@ class LazadaScraper(AbstractScraper):
             else:
                 description = None
 
-            # Product URL — may be relative like //www.lazada.co.th/products/...
             raw_url = item.get("itemUrl") or item.get("productUrl") or ""
             if raw_url.startswith("//"):
                 product_url = "https:" + raw_url
@@ -156,13 +165,11 @@ class LazadaScraper(AbstractScraper):
             else:
                 product_url = f"https://www.lazada.co.th/products/{item_id}.html"
 
-            # Images — `image` is thumbnail
             image = item.get("image", "")
             if image.startswith("//"):
                 image = "https:" + image
             image_urls = [image] if image and image.startswith("http") else []
 
-            # Also collect from `thumbs` array if available
             for thumb in item.get("thumbs", []):
                 img = thumb.get("url") or thumb.get("src") or ""
                 if img.startswith("//"):
@@ -172,7 +179,6 @@ class LazadaScraper(AbstractScraper):
 
             location = item.get("location") or None
 
-            # Seller
             seller_name = item.get("sellerName") or None
             try:
                 rating = float(item.get("ratingScore") or 0) or None
@@ -183,7 +189,6 @@ class LazadaScraper(AbstractScraper):
             except (TypeError, ValueError):
                 review_count = None
 
-            # Sold count from text like "500+ sold"
             sold_txt = item.get("itemSoldCntShow") or ""
             sold_count = None
             if sold_txt:

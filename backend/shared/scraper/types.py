@@ -21,6 +21,7 @@ class Currency(str, Enum):
 class StructuredQuery(BaseModel):
     """Output of LLM query parser (Gemini / Typhoon / regex)."""
 
+    raw_query: str = ""          # original user input — available to all plugins
     keywords: list[str]
     keywords_th: list[str] = []
     keywords_en: list[str] = []
