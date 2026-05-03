@@ -22,7 +22,7 @@ const SOURCE_COLORS: Record<string, string> = {
   jib: "#dc2626",
   bnn: "#0f766e",
   advice: "#7c3aed",
-  priceza: "#0891b2",
+  priceza: "#0369a1",
 };
 
 const CONDITION_COLORS: Record<string, string> = {
