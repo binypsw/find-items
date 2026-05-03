@@ -11,27 +11,27 @@ Thai e-commerce price comparison tool. Monitors prices across Lazada, Kaidee, Sh
 
 **Immediately execute these tasks in order — no need to re-read PLAN.md:**
 
-### 1. ✅ Shopee cookies (NEEDS USER ACTION — skip if user hasn't provided)
+### 1. 🔑 Shopee cookies (NEEDS USER ACTION — skip if user hasn't provided)
 The user must log into Shopee in Chrome, export cookies `SPC_F, SPC_EC, SPC_U, SPC_CDS, SPC_ST`,
 and paste them. Then store in DB:
 ```sql
 INSERT INTO account_sessions (source_id, label, cookies_encrypted, status)
 VALUES ('shopee', 'main', '<encrypted>', 'active');
 ```
-The `ShopeScraper` already reads from `self.deps.cookie_store` — no code changes needed.
+The `ShopeeScraper` already reads from `self.deps.cookie_store` — no code changes needed.
 
-### 2. 🔧 Facebook Marketplace (needs FB session cookies)
+### 2. 🔑 Facebook Marketplace (NEEDS USER ACTION — skip if user hasn't provided)
 `backend/shared/scraper/plugins/facebook.py` — scraper skeleton exists but needs real FB cookies.
 BrowserlessClient supports cookie injection: `async with client.context(cookies=[...])`.
 User must log into Facebook in Chrome and export session cookies.
 
-### 3. 🔧 Try more Thai IT stores (direct HTML scrapers)
-BNN and Priceza patterns work well. Next candidates:
+### 3. 🔧 More Thai IT stores (direct HTML scrapers — optional)
+BNN and Priceza patterns work well. Remaining candidates (both have access issues):
 - **Comquest** (comquest.co.th) — DNS fails from Docker; check if site is live first
-- **IT City** (itcity.co.th) — SSL cert issue; search URL pattern unclear
+- **IT City** (itcity.co.th) — SSL cert issue; search URL pattern still unclear
 - **banana.co.th** is a software company, NOT a hardware store — do not scrape
-- **BNN (bnn.in.th)** is already the BaNANA IT hardware store (Com7 group) — done ✅
-**Note:** `it24hrs.com` is a TECH BLOG, not an IT store. Do not attempt to scrape it.
+- **BNN (bnn.in.th)** is the BaNANA IT hardware store (Com7 group) — already done ✅
+- **it24hrs.com** is a TECH BLOG, not an IT store — do not scrape
 
 ### 4. ✅ Product clustering — DONE
 `sentence_transformers 3.3.1` installed in worker image. `recluster_orphan_products` ran:
@@ -60,7 +60,7 @@ docker compose logs -f worker # watch scraper logs
 ```
 
 Frontend: http://localhost:3001  
-API docs: http://localhost:8000/docs  
+API docs: http://localhost:3001/api/docs  ← use nginx proxy (port 8000 NOT exposed to host)  
 psql: `docker exec find-item-postgres-1 psql -U finditem -d finditem`
 
 ---
@@ -68,24 +68,24 @@ psql: `docker exec find-item-postgres-1 psql -U finditem -d finditem`
 ## Current Status
 
 ### ✅ Working
-- **Lazada**: Browserless (Playwright) intercepts AJAX catalog response. Returns ~37 relevant items. Relevance filter applied.
+- **Lazada**: Browserless (Playwright) intercepts AJAX catalog response. Returns ~37 relevant items. Relevance filter applied. All items stored as `condition="unknown"` (AJAX response has no condition field).
 - **Kaidee**: Browserless + Next.js SSR endpoint. Returns 0 items for DDR4 3600 (real data gap, not a bug).
 - **JIB Computer**: curl_cffi + BeautifulSoup HTML parser. Returns ~31 items per search. `enabled=true` in DB.
-- **BNN** (bnn.in.th): curl_cffi + BeautifulSoup. English keywords preferred. Progressive fallback. Returns ~18 items. `enabled=true` in DB.
-- **Priceza** (NEW): Thai price aggregator — covers JIB, BNN, Advice, IT City, Power Buy etc. in one request. Returns ~24 items. English keywords, majority-token relevance filter. `enabled=true` in DB.
+- **BNN** (bnn.in.th): curl_cffi + BeautifulSoup. English keywords preferred. Progressive fallback (drops tokens until results found). Relevance filter vs original full tokens. Returns ~18 items. `enabled=true` in DB.
+- **Priceza** (priceza.com): Thai price aggregator — covers JIB, BNN, Advice, IT City, Power Buy etc. in one request. curl_cffi + BeautifulSoup. English keywords, majority-token relevance filter. Returns ~24 items. `enabled=true` in DB.
 - **Query parser**: Multi-tier LLM fallback + Redis 24h cache (prevents quota waste).
-- **Dashboard UI**: Sort (score / price ↑↓), condition filter (All/New/Used), result count, auto-refresh every 8s, Run Now button.
-- **New-vs-used comparison UI**: Blue reference bar showing cheapest new price per source (JIB/BNN) when browsing used items. "ถูกกว่ามือ 1 X%" badge on used cards.
+- **Dashboard UI**: Sort (score / price ↑↓), condition filter (All/New/Used), result count, auto-refresh every 8s, Run Now button. Auto-sets condition filter from `parsed_query.condition`.
+- **New-vs-used comparison UI**: Blue reference bar showing cheapest new price per source (JIB/BNN/Priceza) when `condFilter="used"`. Uses majority-token relevance filter on `parsed_query.keywords_en` to avoid wrong products (e.g. Canon printer instead of DDR4). "ถูกกว่ามือ 1 X%" badge on used cards.
 - **Product clustering**: `sentence_transformers 3.3.1` installed in worker. `recluster_orphan_products` ran successfully (processed=166).
 - **Ranking**: Improved — uses search's condition preference, percentile-clipped price normalization, recency bonus.
 - **nginx**: Docker DNS resolver fix prevents 502 on container restart.
 
 ### ❌ Known Issues
-- **Shopee**: API returns error 90309999 (bot detection). Needs real session cookies (SPC_F, SPC_EC, SPC_U).
-- **Advice** (advice.co.th): Blocked by Cloudflare challenge — needs managed scraping API (Scrapfly/ZenRows).
+- **Shopee**: API returns error 90309999 (bot detection). Needs real session cookies (SPC_F, SPC_EC, SPC_U). Disabled in DB.
+- **Facebook Marketplace**: Scraper skeleton exists; needs real FB session cookies. Disabled in DB.
+- **Aliexpress**: No scraper yet. Disabled in DB.
+- **Advice** (advice.co.th): Blocked by Cloudflare challenge — needs managed scraping API (Scrapfly/ZenRows). Disabled in DB.
 - **Gemini quota**: Free tier exhausted daily. Typhoon handles fallback.
-- **facebook / aliexpress / priceza**: Disabled in DB (no working scraper yet).
-- **it24hrs.com**: This is a TECH BLOG, not an IT store. Do not attempt to scrape it.
 
 ---
 
@@ -105,6 +105,7 @@ backend/
         jib.py             # curl_cffi + BeautifulSoup HTML scraper
         bnn.py             # curl_cffi + BeautifulSoup, English keywords, progressive fallback
         priceza.py         # curl_cffi + BeautifulSoup, Thai price aggregator (covers many stores)
+        facebook.py        # skeleton only — needs real FB cookies
     services/
       query_parser.py      # 3-tier LLM parse + Redis cache + _post_process
     core/
@@ -121,6 +122,9 @@ frontend/
     components/
       ResultsDashboard.tsx # Sort/filter controls, auto-refresh, Run Now button, new-vs-used reference bar
       ProductCard.tsx      # Source colour badges (Lazada/Kaidee/JIB/Shopee/BNN/Advice/Priceza), % vs new badge
+    i18n/
+      en.json              # English translations incl. new_ref_label, new_ref_hint
+      th.json              # Thai translations incl. new_ref_label, new_ref_hint
   nginx.conf               # Docker DNS resolver, variable proxy_pass (prevents 502)
 .env                       # API keys, DB creds, GEMINI_MODEL=gemini-2.0-flash
 ```
@@ -142,7 +146,7 @@ frontend/
 SELECT id, enabled, tier FROM sources;
 
 -- Enable a source
-UPDATE sources SET enabled=true WHERE id='jib';
+UPDATE sources SET enabled=true WHERE id='priceza';
 
 -- Check recent scrape runs
 SELECT source_id, status, items_found, started_at FROM scrape_runs ORDER BY id DESC LIMIT 10;
@@ -181,14 +185,14 @@ Plugin is auto-discovered — just drop `mysource.py` in `backend/shared/scraper
 ## Common Debug Commands
 
 ```bash
-# Trigger manual search run
-curl -X POST http://localhost:8000/api/searches/4/run -H "Content-Type: application/json" -d '{}'
+# Trigger manual search run (use nginx proxy — port 8000 not exposed)
+curl -X POST http://localhost:3001/api/searches/4/run -H "Content-Type: application/json" -d '{}'
 
-# Test query parser (use browser/Postman for Thai chars — curl on Git Bash corrupts them)
-curl -X POST http://localhost:8000/api/searches/parse -H "Content-Type: application/json" -d '{"raw_query":"used DDR4 16gb"}'
+# Test query parser
+curl -X POST http://localhost:3001/api/searches/parse -H "Content-Type: application/json" -d '{"raw_query":"used DDR4 16gb"}'
 
 # Watch worker logs filtered
-docker compose logs -f worker | grep -E "(jib|lazada|kaidee|error|items_found)"
+docker compose logs -f worker | grep -E "(jib|bnn|priceza|lazada|kaidee|error|items_found)"
 
 # Check Redis query cache
 docker exec find-item-redis-1 redis-cli -n 0 KEYS "qparse:*"
@@ -201,10 +205,18 @@ docker exec find-item-worker-1 python3 -c "from worker.celery_app import celery_
 
 - **Thai chars in Git Bash curl**: Shell corrupts Thai to `???`. Use browser/Postman for Thai queries.
 - **`docker compose restart` doesn't reload env vars**: Use `docker compose up -d --force-recreate <service>` instead.
+- **`docker compose restart worker` needed after plugin edits**: Worker doesn't hot-reload. After editing any `plugins/*.py`, run `docker compose restart worker` (no rebuild needed unless you changed requirements).
+- **API port 8000 NOT exposed to host**: Always use `localhost:3001/api/...` through nginx. Direct `localhost:8000` will be refused.
 - **Shopee error 90309999**: Not a code bug — Shopee actively blocks automation. Need real session.
+- **Lazada `condition="unknown"`**: Lazada AJAX response has no condition field → all Lazada listings stored as `condition="unknown"`. The "Used" filter intentionally includes `condition="unknown"` items so Lazada results still appear when user filters by used.
 - **Lazada bot protection (`/punish` tmd page)**: Already fixed — using Browserless avoids this.
 - **Kaidee buildId cache**: `KaideeScraper._build_id` is class-level. Stale ID triggers auto-refresh on 404.
-- **`normalize_keywords` priority**: raw_query → keywords_th → keywords_en → keywords (prevents doubling Thai+English).
+- **`normalize_keywords` priority in BNN/Priceza**: These scrapers override `normalize_keywords` to prefer `keywords_en` first (most Thai stores index in English). Base class uses raw_query first.
+- **BNN progressive fallback**: Drops trailing tokens until results are found, but relevance filter always checks against the **original full keyword tokens** (not the broadened fallback). This prevents flooding results from the broadened search.
+- **Priceza price selector**: Use `.pz-pdb-price` (base class only), NOT `.pz-pdb-price.pd-group`. The `.pd-group` subclass only matches range-price items; single-price items use `.pz-pdb-price` only — selecting both classes misses them.
+- **Reference bar wrong products**: `newRefPrices` in ResultsDashboard uses majority-token filter on `parsed_query.keywords_en` to avoid returning unrelated "new" items (e.g. Canon printer when searching for DDR4).
+- **banana.co.th**: This is a SOFTWARE COMPANY, not an IT hardware store. Do not attempt to scrape it.
+- **it24hrs.com**: This is a TECH BLOG, not an IT store. Do not attempt to scrape it.
 - **Worker rebuild needed**: After adding packages to `requirements.txt`, run `docker compose build worker && docker compose up -d worker`.
 - **Frontend rebuild needed**: After editing `frontend/src/`, run `docker compose build frontend && docker compose up -d frontend`.
-- **Worktree vs main**: Changes in `.claude/worktrees/dreamy-raman-ddf764/` are the git-tracked branch. Docker containers bind-mount from `C:/Users/binsg/Desktop/workspace/find-item/` (main). Keep both in sync.
+- **Worktree vs main**: Changes in `.claude/worktrees/dreamy-raman-ddf764/` are the git-tracked branch. Docker containers bind-mount from `C:/Users/binsg/Desktop/workspace/find-item/` (main). Keep both in sync with `cp`.
