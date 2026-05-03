@@ -143,7 +143,15 @@ function ResultsTab({
 
   const sorted = useMemo<RankedListing[]>(() => {
     if (!data) return [];
-    let list = condFilter === "all" ? data : data.filter((l) => l.condition === condFilter);
+    let list: RankedListing[];
+    if (condFilter === "all") {
+      list = data;
+    } else if (condFilter === "used") {
+      // "unknown" condition = can't determine → include when searching used
+      list = data.filter((l) => l.condition === "used" || l.condition === "unknown");
+    } else {
+      list = data.filter((l) => l.condition === condFilter);
+    }
     if (sort === "price_asc") return [...list].sort((a, b) => a.current_price_thb - b.current_price_thb);
     if (sort === "price_desc") return [...list].sort((a, b) => b.current_price_thb - a.current_price_thb);
     return [...list].sort((a, b) => b.score - a.score);
