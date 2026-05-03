@@ -1,7 +1,7 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getTopListings, getSearchRuns, runSearch } from "../api/client";
+import { getTopListings, getSearchRuns, runSearch, getSearch } from "../api/client";
 import { ProductCard } from "./ProductCard";
 import type { RankedListing, ScrapeRun } from "../types";
 
@@ -113,6 +113,20 @@ function ResultsTab({
   const [sort, setSort] = useState<SortKey>("score");
   const [condFilter, setCondFilter] = useState<ConditionFilter>("all");
 
+  // Auto-set condition filter based on search's parsed condition preference
+  const { data: searchMeta } = useQuery({
+    queryKey: ["search", searchId],
+    queryFn: () => getSearch(searchId),
+    enabled: searchId > 0,
+    staleTime: 60_000,
+  });
+  useEffect(() => {
+    const pq = searchMeta?.parsed_query;
+    if (pq?.condition === "used") setCondFilter("used");
+    else if (pq?.condition === "new") setCondFilter("new");
+    else setCondFilter("all");
+  }, [searchMeta?.parsed_query?.condition, searchId]);
+
   const { data, isLoading } = useQuery({
     queryKey: ["top-listings", searchId],
     queryFn: () => getTopListings(searchId, 50),
@@ -135,15 +149,40 @@ function ResultsTab({
     return [...list].sort((a, b) => b.score - a.score);
   }, [data, sort, condFilter]);
 
-  // Cheapest new-condition listing per source — used as reference when browsing used items
+  // Cheapest new-condition listing per source — used as reference when browsing used items.
+  // Strict relevance check: item title must match the majority of search keywords so that
+  // broad-fallback results (Canon printer when searching camera, mainboard when searching RAM)
+  // are excluded. If no item qualifies, the reference bar is hidden entirely.
   const newRefPrices = useMemo<Array<{ source_id: string; price: number; url: string }>>(() => {
     if (!data) return [];
     const usedExists = data.some((l) => l.condition === "used");
     const showRef = condFilter === "used" || (condFilter === "all" && usedExists);
     if (!showRef) return [];
+
+    // Build relevance tokens from the search's parsed English keywords
+    const pq = searchMeta?.parsed_query;
+    const refTokens: string[] = [
+      ...(pq?.keywords_en ?? []),
+      ...(pq?.keywords ?? []),
+    ]
+      .map((k) => k.toLowerCase().trim())
+      .filter((k) => k.length > 1);
+    const uniqueTokens = [...new Set(refTokens)];
+
+    // Decide minimum match threshold: at least ceil(n/2) tokens must match (majority)
+    const minMatch = uniqueTokens.length > 0 ? Math.ceil(uniqueTokens.length / 2) : 0;
+
+    const isRelevant = (title: string): boolean => {
+      if (uniqueTokens.length === 0) return true; // no filter info — allow all
+      const lower = title.toLowerCase();
+      const matched = uniqueTokens.filter((tok) => lower.includes(tok)).length;
+      return matched >= minMatch;
+    };
+
     const bySource: Record<string, { price: number; url: string }> = {};
     for (const l of data) {
       if (l.condition !== "new") continue;
+      if (!isRelevant(l.title)) continue;
       if (!bySource[l.source_id] || l.current_price_thb < bySource[l.source_id].price) {
         bySource[l.source_id] = { price: l.current_price_thb, url: l.url };
       }
@@ -151,7 +190,7 @@ function ResultsTab({
     return Object.entries(bySource)
       .sort((a, b) => a[1].price - b[1].price)
       .map(([source_id, v]) => ({ source_id, ...v }));
-  }, [data, condFilter]);
+  }, [data, condFilter, searchMeta]);
 
   if (isLoading) {
     return (
