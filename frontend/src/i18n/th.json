@@ -45,5 +45,7 @@
   "condition_used": "มือสอง",
   "sort_score": "ตรงที่สุด",
   "sort_price_asc": "ราคา ↑",
-  "sort_price_desc": "ราคา ↓"
+  "sort_price_desc": "ราคา ↓",
+  "new_ref_label": "ราคามือ 1 อ้างอิง:",
+  "new_ref_hint": "ราคาใหม่ถูกสุดในระบบ — เพื่อเปรียบเทียบความคุ้มค่า"
 }

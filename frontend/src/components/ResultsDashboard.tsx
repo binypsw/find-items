@@ -135,6 +135,24 @@ function ResultsTab({
     return [...list].sort((a, b) => b.score - a.score);
   }, [data, sort, condFilter]);
 
+  // Cheapest new-condition listing per source — used as reference when browsing used items
+  const newRefPrices = useMemo<Array<{ source_id: string; price: number; url: string }>>(() => {
+    if (!data) return [];
+    const usedExists = data.some((l) => l.condition === "used");
+    const showRef = condFilter === "used" || (condFilter === "all" && usedExists);
+    if (!showRef) return [];
+    const bySource: Record<string, { price: number; url: string }> = {};
+    for (const l of data) {
+      if (l.condition !== "new") continue;
+      if (!bySource[l.source_id] || l.current_price_thb < bySource[l.source_id].price) {
+        bySource[l.source_id] = { price: l.current_price_thb, url: l.url };
+      }
+    }
+    return Object.entries(bySource)
+      .sort((a, b) => a[1].price - b[1].price)
+      .map(([source_id, v]) => ({ source_id, ...v }));
+  }, [data, condFilter]);
+
   if (isLoading) {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
@@ -223,6 +241,55 @@ function ResultsTab({
         </button>
       </div>
 
+      {/* New-price reference bar — shown when browsing used items */}
+      {newRefPrices.length > 0 && (
+        <div
+          style={{
+            background: "#eff6ff",
+            border: "1px solid #bfdbfe",
+            borderRadius: 8,
+            padding: "0.5rem 0.75rem",
+            display: "flex",
+            alignItems: "center",
+            gap: "0.5rem",
+            flexWrap: "wrap",
+            fontSize: "0.8rem",
+          }}
+        >
+          <span style={{ color: "#1e40af", fontWeight: 600, whiteSpace: "nowrap" }}>
+            {t("new_ref_label") || "ราคาใหม่อ้างอิง:"}
+          </span>
+          {newRefPrices.map((r) => (
+            <a
+              key={r.source_id}
+              href={r.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "0.3rem",
+                padding: "0.2rem 0.5rem",
+                borderRadius: 5,
+                background: "#dbeafe",
+                color: "#1d4ed8",
+                textDecoration: "none",
+                fontWeight: 600,
+                whiteSpace: "nowrap",
+              }}
+            >
+              <span style={{ textTransform: "capitalize", fontSize: "0.72rem", opacity: 0.8 }}>
+                {r.source_id}
+              </span>
+              ฿{r.price.toLocaleString()}
+            </a>
+          ))}
+          <span style={{ color: "#64748b", fontSize: "0.72rem" }}>
+            {t("new_ref_hint") || "ราคามือ 1 ถูกสุดที่มีในระบบ เพื่อเปรียบเทียบความคุ้มค่า"}
+          </span>
+        </div>
+      )}
+
       {!hasData ? (
         <div
           style={{
@@ -248,7 +315,11 @@ function ResultsTab({
           }}
         >
           {sorted.map((listing) => (
-            <ProductCard key={listing.id} listing={listing} />
+            <ProductCard
+              key={listing.id}
+              listing={listing}
+              cheapestNewPrice={newRefPrices.length > 0 ? newRefPrices[0].price : null}
+            />
           ))}
         </div>
       )}

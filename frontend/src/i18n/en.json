@@ -45,5 +45,7 @@
   "condition_used": "Used",
   "sort_score": "Best match",
   "sort_price_asc": "Price ↑",
-  "sort_price_desc": "Price ↓"
+  "sort_price_desc": "Price ↓",
+  "new_ref_label": "New price reference:",
+  "new_ref_hint": "Cheapest new price in the system — to compare value"
 }

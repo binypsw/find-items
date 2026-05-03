@@ -20,6 +20,7 @@ const SOURCE_COLORS: Record<string, string> = {
   lazada: "#2563eb",
   kaidee: "#16a34a",
   jib: "#dc2626",
+  bnn: "#0f766e",
   advice: "#7c3aed",
   priceza: "#0891b2",
 };
@@ -37,9 +38,10 @@ function formatPrice(price: number): string {
 
 interface ProductCardProps {
   listing: RankedListing;
+  cheapestNewPrice?: number | null; // reference new price for used-item comparison
 }
 
-export function ProductCard({ listing }: ProductCardProps) {
+export function ProductCard({ listing, cheapestNewPrice }: ProductCardProps) {
   const { t } = useTranslation();
   const [showChart, setShowChart] = useState(false);
 
@@ -161,6 +163,29 @@ export function ProductCard({ listing }: ProductCardProps) {
               {Math.abs(priceChangePct!).toFixed(1)}%{" "}
               {priceChangePct! < 0 ? "this week" : "this week"}
             </span>
+          )}
+          {/* % cheaper vs cheapest new — shown on used cards when reference price exists */}
+          {listing.condition === "used" && cheapestNewPrice != null && cheapestNewPrice > 0 && (
+            (() => {
+              const pct = ((cheapestNewPrice - listing.current_price_thb) / cheapestNewPrice) * 100;
+              if (pct <= 0) return null;
+              return (
+                <span
+                  title={`ราคามือ 1 ถูกสุด: ฿${cheapestNewPrice.toLocaleString()}`}
+                  style={{
+                    fontSize: "0.7rem",
+                    fontWeight: 700,
+                    color: "#1d4ed8",
+                    background: "#dbeafe",
+                    padding: "0.1rem 0.35rem",
+                    borderRadius: 4,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  ถูกกว่ามือ 1 {pct.toFixed(0)}%
+                </span>
+              );
+            })()
           )}
         </div>
 
