@@ -3,7 +3,7 @@
 > **⚠️ DO NOT read PLAN.md** — it is 1,400+ lines and will waste your context.
 > Start with the "NEXT SESSION: DO THIS FIRST" block below, then work through it.
 
-Thai e-commerce price comparison tool. Monitors prices across Lazada, Kaidee, Shopee, JIB.
+Thai e-commerce price comparison tool. Monitors prices across Lazada, Kaidee, Shopee, JIB, BNN.
 
 ---
 
@@ -20,20 +20,21 @@ VALUES ('shopee', 'main', '<encrypted>', 'active');
 ```
 The `ShopeScraper` already reads from `self.deps.cookie_store` — no code changes needed.
 
-### 2. 🔧 Add IT24hrs scraper (next free source to try)
-IT24hrs.com (it24hrs.com) is a Thai IT store. Its search page renders client-side.
-Try: Browserless + intercept XHR pattern (same as Lazada). Use `source_id = "it24hrs"`.
-The source row exists in DB (`enabled=false`) — enable after scraper works.
-
-### 3. 🔧 Facebook Marketplace (needs FB session cookies)
+### 2. 🔧 Facebook Marketplace (needs FB session cookies)
 `backend/shared/scraper/plugins/facebook.py` — scraper skeleton exists but needs real FB cookies.
 BrowserlessClient supports cookie injection: `async with client.context(cookies=[...])`.
 User must log into Facebook in Chrome and export session cookies.
 
-### 4. ✅ Product clustering — verify it works
-`sentence_transformers 3.3.1` is now installed in the worker image.
-Run: `docker exec find-item-worker-1 python3 -c "from worker.celery_app import celery_app; celery_app.send_task('worker.tasks.scrape_task.recluster_orphan_products')"`
-Then check: `docker exec find-item-postgres-1 psql -U finditem -d finditem -c "SELECT COUNT(*) FROM products;"`
+### 3. 🔧 Try more Thai IT stores (direct HTML scrapers)
+BNN pattern works well. Next candidates (same curl_cffi + BeautifulSoup approach):
+- **Comquest** (comquest.co.th) — Thai IT store
+- **Banana IT** (banana.co.th) — note: uses Nuxt.js, URL is `banana.co.th/search?q=...`  
+  Already fetched fine in tests. Use same pattern as BNN.
+**Note:** `it24hrs.com` is a BLOG, not an IT store. Do not attempt to scrape it.
+
+### 4. ✅ Product clustering — DONE
+`sentence_transformers 3.3.1` installed in worker image. `recluster_orphan_products` ran:
+`processed=166, matched=130, created=36`. Products table populated.
 
 ---
 
@@ -68,10 +69,12 @@ psql: `docker exec find-item-postgres-1 psql -U finditem -d finditem`
 ### ✅ Working
 - **Lazada**: Browserless (Playwright) intercepts AJAX catalog response. Returns ~37 relevant items. Relevance filter applied.
 - **Kaidee**: Browserless + Next.js SSR endpoint. Returns 0 items for DDR4 3600 (real data gap, not a bug).
-- **JIB Computer** (NEW): curl_cffi + BeautifulSoup HTML parser. Returns ~31 items per search. `enabled=true` in DB.
+- **JIB Computer**: curl_cffi + BeautifulSoup HTML parser. Returns ~31 items per search. `enabled=true` in DB.
+- **BNN** (NEW): curl_cffi + BeautifulSoup. English keywords preferred. Progressive fallback: if "DDR4 3600 16GB" = 0 results, tries "DDR4 3600" then "DDR4". Returns ~18 items. `enabled=true` in DB.
 - **Query parser**: Multi-tier LLM fallback + Redis 24h cache (prevents quota waste).
 - **Dashboard UI**: Sort (score / price ↑↓), condition filter (All/New/Used), result count, auto-refresh every 8s, Run Now button.
-- **Product clustering**: `sentence_transformers 3.3.1` installed in worker. `recluster_orphan_products` Celery task ready.
+- **New-vs-used comparison UI**: Blue reference bar showing cheapest new price per source (JIB/BNN) when browsing used items. "ถูกกว่ามือ 1 X%" badge on used cards.
+- **Product clustering**: `sentence_transformers 3.3.1` installed in worker. `recluster_orphan_products` ran successfully (processed=166).
 - **Ranking**: Improved — uses search's condition preference, percentile-clipped price normalization, recency bonus.
 - **nginx**: Docker DNS resolver fix prevents 502 on container restart.
 
@@ -79,7 +82,8 @@ psql: `docker exec find-item-postgres-1 psql -U finditem -d finditem`
 - **Shopee**: API returns error 90309999 (bot detection). Needs real session cookies (SPC_F, SPC_EC, SPC_U).
 - **Advice** (advice.co.th): Blocked by Cloudflare challenge — needs managed scraping API (Scrapfly/ZenRows).
 - **Gemini quota**: Free tier exhausted daily. Typhoon handles fallback.
-- **facebook / aliexpress / priceza / it24hrs**: Disabled in DB (no working scraper yet).
+- **facebook / aliexpress / priceza**: Disabled in DB (no working scraper yet).
+- **it24hrs.com**: This is a TECH BLOG, not an IT store. Do not attempt to scrape it.
 
 ---
 
@@ -96,7 +100,8 @@ backend/
         lazada.py          # Browserless AJAX intercept + relevance filter
         kaidee.py          # Browserless Next.js SSR + condition-word strip + relevance filter
         shopee.py          # Browserless + route interception (blocked by 90309999)
-        jib.py             # curl_cffi + BeautifulSoup HTML scraper (NEW)
+        jib.py             # curl_cffi + BeautifulSoup HTML scraper
+        bnn.py             # curl_cffi + BeautifulSoup, English keywords, progressive fallback
     services/
       query_parser.py      # 3-tier LLM parse + Redis cache + _post_process
     core/
@@ -111,8 +116,8 @@ backend/
 frontend/
   src/
     components/
-      ResultsDashboard.tsx # Sort/filter controls, auto-refresh, Run Now button
-      ProductCard.tsx      # Source colour badges (Lazada/Kaidee/JIB/Shopee/Advice/Priceza)
+      ResultsDashboard.tsx # Sort/filter controls, auto-refresh, Run Now button, new-vs-used reference bar
+      ProductCard.tsx      # Source colour badges (Lazada/Kaidee/JIB/Shopee/BNN/Advice/Priceza), % vs new badge
   nginx.conf               # Docker DNS resolver, variable proxy_pass (prevents 502)
 .env                       # API keys, DB creds, GEMINI_MODEL=gemini-2.0-flash
 ```
