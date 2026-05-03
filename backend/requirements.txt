@@ -28,6 +28,9 @@ lxml==5.3.*
 scrapfly-sdk
 zenrows
 
+# Embeddings — product deduplication/clustering
+sentence-transformers==3.3.*
+
 # LLM — query parsing
 google-genai>=1.0.0
 openai>=1.58.0

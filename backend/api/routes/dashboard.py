@@ -11,6 +11,7 @@ from shared.database import get_db
 from shared.models.listing import Listing
 from shared.models.price_snapshot import PriceSnapshot
 from shared.models.scrape_run import ScrapeRun
+from shared.models.search import SavedSearch
 from api.routes.listings import ListingResponse, _to_response
 
 log = structlog.get_logger()
@@ -29,6 +30,16 @@ async def get_top_listings(
     limit: int = Query(default=10, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
 ):
+    # Load search to get condition preference for scoring
+    search_result = await db.execute(select(SavedSearch).where(SavedSearch.id == search_id))
+    search = search_result.scalar_one_or_none()
+    preferred_condition: Optional[str] = None
+    if search and search.parsed_query:
+        pq = search.parsed_query if isinstance(search.parsed_query, dict) else {}
+        cond = pq.get("condition", "unknown")
+        if cond in ("new", "used", "refurbished"):
+            preferred_condition = cond
+
     # Resolve listing IDs for this search via ScrapeRun -> PriceSnapshot
     run_result = await db.execute(
         select(ScrapeRun.id).where(ScrapeRun.search_id == search_id)
@@ -57,11 +68,11 @@ async def get_top_listings(
     if not listings:
         return []
 
-    # Compute price normalization bounds
-    prices = [float(l.current_price_thb) for l in listings]
-    min_price = min(prices)
-    max_price = max(prices)
-    price_range = max_price - min_price if max_price != min_price else 1.0
+    # Compute price normalization bounds (use percentile to ignore outliers)
+    prices = sorted([float(l.current_price_thb) for l in listings])
+    p10 = prices[max(0, int(len(prices) * 0.1))]
+    p90 = prices[min(len(prices) - 1, int(len(prices) * 0.9))]
+    price_range = p90 - p10 if p90 != p10 else 1.0
 
     # Fetch 7-day-ago snapshots for all listing ids in one query
     cutoff_7d = datetime.now(timezone.utc) - timedelta(days=7)
@@ -81,21 +92,26 @@ async def get_top_listings(
         if snap.listing_id not in snap7_by_listing:
             snap7_by_listing[snap.listing_id] = float(snap.price_thb)
 
+    now = datetime.now(timezone.utc)
+
     # Score and rank
     scored: list[tuple[float, Listing]] = []
     for listing in listings:
         price = float(listing.current_price_thb)
         score = 100.0
 
-        # Condition bonus
-        if listing.condition == "new":
-            score += 20
+        # Condition match: bonus if listing matches what user searched for
+        if preferred_condition and listing.condition == preferred_condition:
+            score += 25
         elif listing.condition == "used":
-            score += 10
+            score += 8
+        elif listing.condition == "new":
+            score += 5
 
-        # Price rank: lower price → higher score (up to +30)
-        normalized_price_rank = 1.0 - (price - min_price) / price_range  # 1=cheapest, 0=most expensive
-        score += normalized_price_rank * 30
+        # Price rank using percentile-clipped range (up to +35)
+        clipped = max(p10, min(p90, price))
+        normalized_price_rank = 1.0 - (clipped - p10) / price_range
+        score += normalized_price_rank * 35
 
         # Volatile price penalty
         if listing.price_change_count > 0:
@@ -105,6 +121,13 @@ async def get_top_listings(
         seller = listing.seller_payload or {}
         if (seller.get("sold_count") or 0) > 100:
             score += 5
+
+        # Recency bonus: listings seen within 24h get +5
+        age_hours = (now - listing.last_seen_at).total_seconds() / 3600 if listing.last_seen_at else 9999
+        if age_hours < 24:
+            score += 5
+        elif age_hours < 72:
+            score += 2
 
         scored.append((score, listing))
 
