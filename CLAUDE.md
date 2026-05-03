@@ -3,7 +3,7 @@
 > **⚠️ DO NOT read PLAN.md** — it is 1,400+ lines and will waste your context.
 > Start with the "NEXT SESSION: DO THIS FIRST" block below, then work through it.
 
-Thai e-commerce price comparison tool. Monitors prices across Lazada, Kaidee, Shopee, JIB, BNN.
+Thai e-commerce price comparison tool. Monitors prices across Lazada, Kaidee, Shopee, JIB, BNN, Priceza.
 
 ---
 
@@ -26,11 +26,12 @@ BrowserlessClient supports cookie injection: `async with client.context(cookies=
 User must log into Facebook in Chrome and export session cookies.
 
 ### 3. 🔧 Try more Thai IT stores (direct HTML scrapers)
-BNN pattern works well. Next candidates (same curl_cffi + BeautifulSoup approach):
-- **Comquest** (comquest.co.th) — Thai IT store
-- **Banana IT** (banana.co.th) — note: uses Nuxt.js, URL is `banana.co.th/search?q=...`  
-  Already fetched fine in tests. Use same pattern as BNN.
-**Note:** `it24hrs.com` is a BLOG, not an IT store. Do not attempt to scrape it.
+BNN and Priceza patterns work well. Next candidates:
+- **Comquest** (comquest.co.th) — DNS fails from Docker; check if site is live first
+- **IT City** (itcity.co.th) — SSL cert issue; search URL pattern unclear
+- **banana.co.th** is a software company, NOT a hardware store — do not scrape
+- **BNN (bnn.in.th)** is already the BaNANA IT hardware store (Com7 group) — done ✅
+**Note:** `it24hrs.com` is a TECH BLOG, not an IT store. Do not attempt to scrape it.
 
 ### 4. ✅ Product clustering — DONE
 `sentence_transformers 3.3.1` installed in worker image. `recluster_orphan_products` ran:
@@ -70,7 +71,8 @@ psql: `docker exec find-item-postgres-1 psql -U finditem -d finditem`
 - **Lazada**: Browserless (Playwright) intercepts AJAX catalog response. Returns ~37 relevant items. Relevance filter applied.
 - **Kaidee**: Browserless + Next.js SSR endpoint. Returns 0 items for DDR4 3600 (real data gap, not a bug).
 - **JIB Computer**: curl_cffi + BeautifulSoup HTML parser. Returns ~31 items per search. `enabled=true` in DB.
-- **BNN** (NEW): curl_cffi + BeautifulSoup. English keywords preferred. Progressive fallback: if "DDR4 3600 16GB" = 0 results, tries "DDR4 3600" then "DDR4". Returns ~18 items. `enabled=true` in DB.
+- **BNN** (bnn.in.th): curl_cffi + BeautifulSoup. English keywords preferred. Progressive fallback. Returns ~18 items. `enabled=true` in DB.
+- **Priceza** (NEW): Thai price aggregator — covers JIB, BNN, Advice, IT City, Power Buy etc. in one request. Returns ~24 items. English keywords, majority-token relevance filter. `enabled=true` in DB.
 - **Query parser**: Multi-tier LLM fallback + Redis 24h cache (prevents quota waste).
 - **Dashboard UI**: Sort (score / price ↑↓), condition filter (All/New/Used), result count, auto-refresh every 8s, Run Now button.
 - **New-vs-used comparison UI**: Blue reference bar showing cheapest new price per source (JIB/BNN) when browsing used items. "ถูกกว่ามือ 1 X%" badge on used cards.
@@ -102,6 +104,7 @@ backend/
         shopee.py          # Browserless + route interception (blocked by 90309999)
         jib.py             # curl_cffi + BeautifulSoup HTML scraper
         bnn.py             # curl_cffi + BeautifulSoup, English keywords, progressive fallback
+        priceza.py         # curl_cffi + BeautifulSoup, Thai price aggregator (covers many stores)
     services/
       query_parser.py      # 3-tier LLM parse + Redis cache + _post_process
     core/
