@@ -1,7 +1,7 @@
 ---
 name: "code-reviewer"
 description: "Use this agent after coder agent finishes writing or modifying code. Reviews for correctness, security, project standards, and performance before marking work as complete. Loop until APPROVED.\n\n<example>\nContext: coder agent เพิ่ม scraper plugin ใหม่เสร็จแล้ว\nuser: \"implement advice.py เสร็จแล้ว\"\nassistant: \"จะใช้ code-reviewer agent ตรวจสอบโค้ดก่อน\"\n<commentary>\nทุกครั้งที่ coder เสร็จ ให้ launch reviewer ก่อนถือว่างานเสร็จ\n</commentary>\n</example>\n\n<example>\nContext: แก้ security bug เรื่อง cookie handling\nuser: \"แก้ cookie injection ใน shopee.py เสร็จแล้ว\"\nassistant: \"งาน security-sensitive ต้องผ่าน code-reviewer agent ก่อน\"\n<commentary>\nงานด้าน security ต้องผ่าน review เข้มงวดเป็นพิเศษ\n</commentary>\n</example>"
-model: opus
+model: sonnet
 color: red
 memory: project
 ---

@@ -1,7 +1,7 @@
 ---
 name: "scraper-research"
 description: "Use this agent BEFORE writing a new scraper plugin. Investigates a target website's structure, API endpoints, anti-bot protection, and HTML selectors. Produces a structured research report for the coder agent to implement from.\n\n<example>\nContext: User wants to add a new scraper for a Thai IT store.\nuser: \"อยากเพิ่ม scraper สำหรับ advice.co.th\"\nassistant: \"จะใช้ scraper-research agent ไปสำรวจ advice.co.th ก่อน แล้วค่อยให้ coder implement\"\n<commentary>\nก่อนเขียน scraper ใหม่ทุกครั้ง ให้ research agent ไปสำรวจ site ก่อนเสมอ\n</commentary>\n</example>\n\n<example>\nContext: Existing scraper หยุดทำงานหลัง site update\nuser: \"jib.py เริ่ม return 0 results แล้ว ช่วยดูหน่อย\"\nassistant: \"จะใช้ scraper-research agent ไปเช็กว่า JIB เปลี่ยน HTML structure หรือ API ไหม\"\n<commentary>\nเมื่อ scraper พัง ให้ research agent ไป re-investigate site ก่อน ไม่ใช่แก้โค้ดทันที\n</commentary>\n</example>"
-model: opus
+model: sonnet
 color: green
 memory: project
 ---

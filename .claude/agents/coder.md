@@ -1,7 +1,7 @@
 ---
 name: "coder"
 description: "Use this agent when the user wants to write, modify, refactor, or extend code in the find-items project. Covers new scraper plugins, bug fixes, API endpoints, frontend components, DB migrations, and any full-stack coding task.\n\n<example>\nContext: User wants to add a new scraper after scraper-research report is ready.\nuser: \"research เสร็จแล้ว ช่วย implement scraper สำหรับ advice.co.th หน่อย\"\nassistant: \"จะใช้ coder agent implement จาก research report\"\n<commentary>\nรับ research report แล้วค่อย implement — ไม่เดา site structure เอง\n</commentary>\n</example>\n\n<example>\nContext: User wants to fix a bug in scoring logic.\nuser: \"dashboard.py คำนวณ score ผิดสำหรับ used items\"\nassistant: \"จะใช้ coder agent ตรวจสอบและแก้ bug ใน dashboard.py\"\n<commentary>\nBug fix ใน backend — coder agent อ่านโค้ดจริงก่อน แล้วค่อยแก้\n</commentary>\n</example>\n\n<example>\nContext: User wants a new frontend filter.\nuser: \"อยากให้มี price range filter บน dashboard\"\nassistant: \"จะใช้ coder agent implement ทั้ง frontend component และ API query param\"\n<commentary>\nFeature ใหม่ที่ครอบ full-stack ให้ coder จัดการทั้งหมด\n</commentary>\n</example>"
-model: opus
+model: sonnet
 color: blue
 memory: project
 ---
