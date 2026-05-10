@@ -1,7 +1,7 @@
 # Find Item — Current Status
 
-_Last updated: 2026-05-10 — fixed Lazada relevance filter, dashboard stale-run bug, reference bar accessory contamination_
-_Tested with: DDR4 16GB + มือถือ samsung S24 Ultra มือสอง searches, reference bar verified ฿21,000_
+_Last updated: 2026-05-10 — model-number filter + 35% price floor catches clone phones; tested Richell non-electronics search_
+_Tested with: DDR4 16GB + S24 Ultra มือสอง (11 clean results, no fakes) + แก้วน้ำ richell มือสอง (37 results, all legitimate cups)_
 
 ## Infrastructure
 
@@ -68,8 +68,9 @@ _Tested with: DDR4 16GB + มือถือ samsung S24 Ultra มือสอ�
 - [x] Fix reference bar accessory contamination — ACCESSORY_TERMS at module level + "casing" + multi-model detection (≥3 S-model numbers)
 - [x] Fix JIB relevance filter — majority-token on keywords_en + normalize_keywords prefers keywords_en
 - [x] Fix frontend: filter accessories from main results display; price floor for used results (< 15% of cheapest new = filtered)
-- [x] Switch coder/code-reviewer/scraper-research agent model to opus
-- [ ] ฿7,018 "4+128GB 8 แกน" / ฿10,000 fake "S26 Ultra" still appear (above ฿3,150 floor) — needs deeper clone detection
+- [x] Switch coder/code-reviewer/scraper-research agent model to opus, then reverted to sonnet
+- [x] Fix clone/fake phone detection: model-number filter (keywords_en token like "s24" must appear in title) + raise price floor 15%→35% (catches ฿7,018 clone + ฿10,000 S26 Ultra)
+- [x] Verified non-electronics search (แก้วน้ำ richell): model-number filter doesn't affect non-model-number queries; 37 clean results
 - [ ] Shopee cookies (user action required)
 - [ ] Facebook cookies + scraper (user action required)
 - [ ] Add alembic migration failure handling in entrypoint (exit code propagation)

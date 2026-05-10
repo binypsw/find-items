@@ -172,11 +172,21 @@ function ResultsTab({
     // Remove pure accessory listings (cases, films, cables) from display results
     list = list.filter((l) => !isAccessory(l.title));
 
-    // Price sanity filter for used results: items priced < 15% of the cheapest
+    // Model-number specificity: if keywords_en contains a model-number token
+    // (single letter + 2-3 digits, e.g. "s24"), require that exact token in
+    // the title — catches "S26 Ultra" appearing in an "S24 Ultra" search.
+    const pq = searchMeta?.parsed_query;
+    const modelNum = pq?.keywords_en
+      ?.find((k) => /^[a-z]\d{2,3}[+]?$/i.test(k))
+      ?.toLowerCase();
+    if (modelNum) {
+      list = list.filter((l) => l.title.toLowerCase().includes(modelNum));
+    }
+
+    // Price sanity filter for used results: items priced < 35% of the cheapest
     // legitimate new-condition listing are almost certainly fakes or clones
-    // (e.g. ฿781 "Samsung S24 Ultra" when real new price is ฿21,000).
+    // (e.g. ฿7,018 "S24 ULTRA 4+128GB" when real new price is ฿21,000 → floor ฿7,350).
     if (condFilter === "used" && data.length > 0) {
-      const pq = searchMeta?.parsed_query;
       const refTokens = [...(pq?.keywords_en ?? []), ...(pq?.keywords ?? [])]
         .map((k) => k.toLowerCase().trim()).filter((k) => k.length > 1);
       const uniq = [...new Set(refTokens)];
@@ -190,7 +200,7 @@ function ResultsTab({
         .filter((l) => l.condition === "new" && isRelevant(l.title) && !isAccessory(l.title))
         .map((l) => l.current_price_thb);
       if (newPrices.length > 0) {
-        const floor = Math.min(...newPrices) * 0.15;
+        const floor = Math.min(...newPrices) * 0.35;
         list = list.filter((l) => l.current_price_thb >= floor);
       }
     }
