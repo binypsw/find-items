@@ -69,6 +69,13 @@ class ShopeeScraper(AbstractScraper):
         try:
             async with self.deps.browserless.context(
                 locale="th-TH",
+                # Override UA: Browserless headless Chrome includes "HeadlessChrome"
+                # which Shopee's bot detection flags. Use a real Windows Chrome UA.
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/131.0.0.0 Safari/537.36"
+                ),
                 extra_http_headers={
                     "Accept-Language": "th-TH,th;q=0.9,en-US;q=0.8",
                 },
@@ -107,29 +114,35 @@ class ShopeeScraper(AbstractScraper):
                     window.chrome = window.chrome || {runtime: {}};
                     Object.defineProperty(navigator, 'plugins', {get: () => [1,2,3,4,5]});
                     Object.defineProperty(navigator, 'languages', {get: () => ['th-TH', 'th', 'en-US', 'en']});
+                    Object.defineProperty(navigator, 'hardwareConcurrency', {get: () => 8});
+                    Object.defineProperty(navigator, 'deviceMemory', {get: () => 8});
+                    Object.defineProperty(screen, 'colorDepth', {get: () => 24});
                 """)
 
                 if stored_cookies:
-                    # Inject stored session cookies directly — skips warmup navigation.
+                    # Inject stored session cookies before navigation so Shopee's
+                    # homepage JS sees a recognised session and can refresh SPC_ST.
                     try:
                         await ctx.add_cookies(stored_cookies)
                         log.info("shopee.cookies_injected", count=len(stored_cookies), keyword=keyword)
                     except Exception as exc:
                         log.warning("shopee.cookie_inject_error", error=str(exc))
-                        stored_cookies = None  # fall through to warmup below
+                        stored_cookies = None
 
-                if not stored_cookies:
-                    # No stored cookies — visit homepage so Shopee's JS can generate
-                    # SPC_F and other session tokens before the search API call.
-                    try:
-                        await page.goto(
-                            "https://shopee.co.th/",
-                            wait_until="domcontentloaded",
-                            timeout=20_000,
-                        )
-                        await asyncio.sleep(4)
-                    except Exception as exc:
-                        log.debug("shopee.warmup_timeout", error=str(exc))
+                # Always visit homepage: Shopee's JS uses it to refresh short-lived
+                # tokens (SPC_ST) even when session cookies are already present.
+                # With stored cookies the session is recognised immediately, so 2s
+                # is enough; without cookies we need 4s for cold token generation.
+                warmup_sleep = 2 if stored_cookies else 4
+                try:
+                    await page.goto(
+                        "https://shopee.co.th/",
+                        wait_until="domcontentloaded",
+                        timeout=20_000,
+                    )
+                    await asyncio.sleep(warmup_sleep)
+                except Exception as exc:
+                    log.debug("shopee.warmup_timeout", error=str(exc))
 
                 # Lambda predicate ensures the URL match works regardless of glob rules
                 await page.route(

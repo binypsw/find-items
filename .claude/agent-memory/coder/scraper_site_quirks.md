@@ -24,11 +24,11 @@ type: project
 - **Critical**: do NOT use `.pz-pdb-price.pd-group` — `.pd-group` only matches range-price items; single-price items use `.pz-pdb-price` without subclass → selecting both classes misses them
 
 ## Shopee
-- Error 90309999 = bot detection. Needs real session cookies: SPC_F, SPC_EC, SPC_U, SPC_CDS, SPC_ST
-- `ShopeeScraper` reads `self.deps.cookie_store.get_active("shopee")` and injects via `ctx.add_cookies()` before navigation — skips homepage warmup when cookies present
-- If cookies loaded but 90309999 still fires → cookies expired; re-extract from browser and re-POST to `/api/sessions`
-- To seed: extract cookies from logged-in Shopee session in browser, POST to `POST /api/sessions` with `source_id="shopee"`, `label="<date>"`, `cookies_json="<Playwright-format JSON array>"` — cookies **must** include `"domain": ".shopee.co.th"` on each entry (Playwright scopes injected cookies by domain before any navigation)
-- Still disabled in DB (`enabled=false`) — enable after seeding cookies: `UPDATE sources SET enabled=true WHERE id='shopee'`
+- Error 90309999 = bot detection. Root cause: `SPC_CDS` is a device-fingerprint token generated on-demand by Shopee's JS library (`spc_cds_lib.js`) for each API call — it is NOT a persistent extractable cookie.
+- **Confirmed**: Browserless + valid session cookies (SPC_F, SPC_EC, SPC_U, SPC_ST) + UA override + stealth=true ALL still return 90309999. Even direct curl_cffi with all cookies returns 90309999.
+- **Fix requires Scrapfly tier 3** (managed scraping API, ~$30/month) — it provides a real browser fingerprint + residential proxy that passes Shopee's detection.
+- Cookie injection code IS implemented (`ShopeeScraper` reads `self.deps.cookie_store.get_active("shopee")` and injects via `ctx.add_cookies()`) but is insufficient alone.
+- Shopee is disabled in DB (`enabled=false`). Do NOT enable until Scrapfly is integrated.
 
 ## ResultsDashboard (frontend)
 - `newRefPrices` uses majority-token filter on `parsed_query.keywords_en` to avoid wrong "new" items (e.g. Canon printer when searching DDR4)

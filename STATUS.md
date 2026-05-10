@@ -22,7 +22,7 @@ _Tested with: DDR4 16GB + S24 Ultra มือสอง (11 clean results, no fak
 | Priceza | ✅ Working | 23 | curl_cffi aggregator, fast (~2s) |
 | Lazada | ✅ Working | 29 | Browserless AJAX intercept; majority-token relevance filter (keywords_en) |
 | Kaidee | ✅ Working | 0 | Real data gap — no DDR4 listings on Kaidee |
-| Shopee | ⏳ Ready (awaiting cookies) | 0 | Cookie injection implemented — needs SPC_F, SPC_EC, SPC_U cookies seeded via POST /api/sessions |
+| Shopee | ❌ Needs managed API | 0 | SPC_CDS is device-fingerprint token generated on-demand by Shopee JS — cannot be extracted/reused; Browserless blocked by bot detection (90309999) |
 | Advice | ⏸ Skipped | 0 | Cloudflare block confirmed; Priceza covers it; disabled in DB |
 | AliExpress | ❌ Disabled | 0 | No real scraper — only stub; disabled in DB |
 | Facebook | ❌ Disabled | — | Needs FB session cookies |
@@ -43,7 +43,7 @@ _Tested with: DDR4 16GB + S24 Ultra มือสอง (11 clean results, no fak
 | Ranking (condition preference, percentile price norm) | ✅ Working | Dashboard returns ordered results |
 | Price history charts | ❌ Not implemented | |
 | Discord notifications | ❌ Not implemented | |
-| Shopee scraper | ⏳ Ready (awaiting cookies) | Cookie injection in `shopee.py` done; enable after seeding cookies |
+| Shopee scraper | ❌ Needs Scrapfly | Cookie injection implemented but Shopee's SPC_CDS is device-fingerprint token — not extractable; need Scrapfly tier 3 |
 | Facebook scraper | ❌ Blocked | Needs FB session cookies |
 
 ## Data State
@@ -71,10 +71,14 @@ _Tested with: DDR4 16GB + S24 Ultra มือสอง (11 clean results, no fak
 - [x] Switch coder/code-reviewer/scraper-research agent model to opus, then reverted to sonnet
 - [x] Fix clone/fake phone detection: model-number filter (keywords_en token like "s24" must appear in title) + raise price floor 15%→35% (catches ฿7,018 clone + ฿10,000 S26 Ultra)
 - [x] Verified non-electronics search (แก้วน้ำ richell): model-number filter doesn't affect non-model-number queries; 37 clean results
-- [ ] Shopee cookies: extract from browser → `POST /api/sessions` `{"source_id":"shopee","label":"YYYY-MM-DD","cookies_json":"[...]"}` → `UPDATE sources SET enabled=true WHERE id='shopee'`
+- [ ] Shopee: requires Scrapfly ($30/month) — SPC_CDS is device-fingerprint token generated on-demand by Shopee JS, cannot be extracted; Browserless approach confirmed blocked (90309999 persists with valid session cookies + UA override + stealth)
 - [ ] Facebook cookies + scraper (user action required)
 - [ ] Add alembic migration failure handling in entrypoint (exit code propagation)
 - [ ] Consider removing --reload flag in production docker-compose
+- [x] **Fix tier mismatch ใน DB**: lazada/shopee ใช้ `browserless` จริง แต่ DB บอก `managed_api` → แก้ทั้ง DB (SQL) และ `0001_initial.py` seed
+- [ ] **Fix ฟีดสด (LiveFeed)**: `LiveFeed.tsx` เปิด WebSocket `/ws/runs` แต่ไม่ส่ง `subscribe` message → backend timeout loop; ต้องตัดสินใจก่อนว่าจะ subscribe run ไหน (latest active run? หรือเอา feature ออก?)
+- [ ] **Fix `last_success_at`**: `scrape_task.py` ไม่อัปเดต `source.last_success_at` เลย → เพิ่มใน scrape complete handler
+- [ ] **Fix `health_status`**: ค้างที่ `unknown` ตลอด — ต้องเพิ่ม Celery beat health check job
 
 ## Known Issues on This Machine
 
