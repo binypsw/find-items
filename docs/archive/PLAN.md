@@ -1,3 +1,9 @@
+> ⚠️ HISTORICAL DOCUMENT — Initial design only.
+> Reality has diverged. Do not use as reference.
+> See STATUS.md for current state.
+
+---
+
 # Find-Item: Thai E-Commerce Multi-Source Scraper (v2 — Production-Ready)
 
 ## Context
