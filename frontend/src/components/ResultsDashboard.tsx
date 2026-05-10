@@ -129,7 +129,7 @@ function ResultsTab({
 
   const { data, isLoading } = useQuery({
     queryKey: ["top-listings", searchId],
-    queryFn: () => getTopListings(searchId, 50),
+    queryFn: () => getTopListings(searchId, 200),
     enabled: searchId > 0,
     refetchInterval: 8000,
   });
@@ -187,10 +187,25 @@ function ResultsTab({
       return matched >= minMatch;
     };
 
+    // Accessory exclusion: sites like Priceza/BNN return phone cases, films, cables etc.
+    // alongside actual products. These share model name tokens ("Samsung S24 Ultra") for compatibility
+    // but are priced at ฿29-฿350. Exclude items whose titles contain accessory signal words.
+    const ACCESSORY_TERMS = [
+      "เคส", "ฟิล์ม", "กระจก", "ซอง", "สาย", "ที่ชาร์จ", "แผ่น", "สติ๊กเกอร์",
+      "อะคริลิค", "แม่เหล็ก", "สายคล้อง", "ฟิล์มกันรอย",
+      "case", "film", "protector", "folio", "plate", "cable", "charger",
+      "cover", "sleeve", "pouch", "holder", "stand", "wallet",
+    ];
+    const isAccessory = (title: string): boolean => {
+      const lower = title.toLowerCase();
+      return ACCESSORY_TERMS.some((t) => lower.includes(t));
+    };
+
     const bySource: Record<string, { price: number; url: string }> = {};
     for (const l of data) {
       if (l.condition !== "new") continue;
       if (!isRelevant(l.title)) continue;
+      if (isAccessory(l.title)) continue;
       if (!bySource[l.source_id] || l.current_price_thb < bySource[l.source_id].price) {
         bySource[l.source_id] = { price: l.current_price_thb, url: l.url };
       }

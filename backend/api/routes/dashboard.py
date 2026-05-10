@@ -27,7 +27,7 @@ class RankedListingResponse(ListingResponse):
 @router.get("/{search_id}/top", response_model=list[RankedListingResponse])
 async def get_top_listings(
     search_id: int,
-    limit: int = Query(default=10, ge=1, le=50),
+    limit: int = Query(default=50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
 ):
     # Load search to get condition preference for scoring
@@ -40,11 +40,25 @@ async def get_top_listings(
         if cond in ("new", "used", "refurbished"):
             preferred_condition = cond
 
-    # Resolve listing IDs for this search via ScrapeRun -> PriceSnapshot
-    run_result = await db.execute(
-        select(ScrapeRun.id).where(ScrapeRun.search_id == search_id)
+    # Use only the most recent completed run per source.
+    # This ensures re-running a search with an updated relevance filter removes
+    # previously-matched listings that no longer pass the filter.
+    from sqlalchemy import func
+    latest_subq = (
+        select(func.max(ScrapeRun.id).label("max_id"))
+        .where(ScrapeRun.search_id == search_id)
+        .where(ScrapeRun.status == "completed")
+        .group_by(ScrapeRun.source_id)
+        .subquery()
     )
-    run_ids = [r for (r,) in run_result.all()]
+    run_result = await db.execute(select(latest_subq.c.max_id))
+    run_ids = [r for (r,) in run_result.all() if r is not None]
+    if not run_ids:
+        # Fallback: include all runs (e.g. if none are completed yet)
+        all_runs = await db.execute(
+            select(ScrapeRun.id).where(ScrapeRun.search_id == search_id)
+        )
+        run_ids = [r for (r,) in all_runs.all()]
     if not run_ids:
         return []
 

@@ -98,21 +98,39 @@ class LazadaScraper(AbstractScraper):
             log.info("lazada.no_items", keyword=keyword)
             return
 
-        # Relevance filter: Lazada uses broad OR matching so results often
-        # contain unrelated items. Keep only items whose title contains at
-        # least one meaningful token from the search keyword.
-        relevance_tokens = [t.lower() for t in keyword.split() if len(t) > 1]
+        # Relevance filter: use keywords_en with majority-token matching when available.
+        # Lazada's broad OR search returns many unrelated items (e.g. Nokia 3310 when
+        # searching "samsung S24 Ultra") because generic tokens like "มือถือ" match anything.
+        # Majority threshold requires ceil(n/2) of the product-identifying tokens to match.
+        import math
+        if query.keywords_en:
+            relevance_tokens = [t.lower() for t in query.keywords_en if len(t) > 1]
+            min_match = max(1, math.ceil(len(relevance_tokens) / 2))
+            def _is_relevant(title: str) -> bool:
+                tl = title.lower()
+                return sum(1 for tok in relevance_tokens if tok in tl) >= min_match
+        elif query.keywords:
+            relevance_tokens = [t.lower() for t in query.keywords if len(t) > 1]
+            min_match = max(1, math.ceil(len(relevance_tokens) / 2))
+            def _is_relevant(title: str) -> bool:
+                tl = title.lower()
+                return sum(1 for tok in relevance_tokens if tok in tl) >= min_match
+        else:
+            raw_tokens = [t.lower() for t in keyword.split() if len(t) > 1]
+            def _is_relevant(title: str) -> bool:
+                tl = title.lower()
+                return any(tok in tl for tok in raw_tokens)
+
         skipped = 0
 
         yielded = 0
         for item in items:
             if yielded >= limit:
                 return
-            if relevance_tokens:
-                title_lower = (item.get("name", "") or "").lower()
-                if not any(tok in title_lower for tok in relevance_tokens):
-                    skipped += 1
-                    continue
+            title = item.get("name", "") or ""
+            if title and not _is_relevant(title):
+                skipped += 1
+                continue
             listing = self._normalize(item)
             if listing:
                 yield listing

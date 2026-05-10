@@ -1,7 +1,7 @@
 # Find Item — Current Status
 
-_Last updated: 2026-05-10 — fixed migrations entrypoint, disabled non-functional sources, ran clustering_
-_Tested with: DDR4 16GB search, scrape run triggered, results confirmed from DB_
+_Last updated: 2026-05-10 — fixed Lazada relevance filter, dashboard stale-run bug, reference bar accessory contamination_
+_Tested with: DDR4 16GB + มือถือ samsung S24 Ultra มือสอง searches, reference bar verified ฿21,000_
 
 ## Infrastructure
 
@@ -18,8 +18,9 @@ _Tested with: DDR4 16GB search, scrape run triggered, results confirmed from DB_
 | Source | Status | Items (DDR4 16GB) | Notes |
 |---|---|---|---|
 | JIB | ✅ Working | 41 | curl_cffi + BeautifulSoup, fast (~8s) |
+| BNN | ✅ Working | ~18 | curl_cffi + English keywords; seeded into DB manually (was missing on new machine) |
 | Priceza | ✅ Working | 23 | curl_cffi aggregator, fast (~2s) |
-| Lazada | ✅ Working | 40 | Browserless AJAX intercept (~10s) |
+| Lazada | ✅ Working | 29 | Browserless AJAX intercept; majority-token relevance filter (keywords_en) |
 | Kaidee | ✅ Working | 0 | Real data gap — no DDR4 listings on Kaidee |
 | Shopee | ❌ Disabled | 0 | error 90309999 — needs SPC_F, SPC_EC, SPC_U cookies; disabled in DB |
 | Advice | ⏸ Skipped | 0 | Cloudflare block confirmed; Priceza covers it; disabled in DB |
@@ -34,10 +35,10 @@ _Tested with: DDR4 16GB search, scrape run triggered, results confirmed from DB_
 | Redis cache for query parser | ✅ Working | Celery + Redis both healthy |
 | JIB / Priceza / Lazada scrapers | ✅ Working | Confirmed with live scrape run |
 | Kaidee scraper | ✅ Working | Returns 0 = real data gap, not a bug |
-| Dashboard API (`/api/dashboard/{id}/top`) | ✅ Working | Returns 10 ranked listings |
+| Dashboard API (`/api/dashboard/{id}/top`) | ✅ Working | Returns up to 200 ranked listings; uses latest run per source only |
 | Celery worker + pubsub events | ✅ Working | item_found events published correctly |
-| Dashboard UI (sort, filter, auto-refresh, Run Now) | ✅ Expected working | Frontend up; not manually clicked |
-| New-vs-used comparison bar | ✅ Expected working | Code unchanged from last known working state |
+| Dashboard UI (sort, filter, auto-refresh, Run Now) | ✅ Working | Verified with S24 Ultra search |
+| New-vs-used comparison bar | ✅ Working | Accessory exclusion filter active; shows ฿21,000 for S24 Ultra |
 | Product clustering (sentence-transformers) | ✅ Done — processed=104, matched=88, created=16 | products table populated (16 products) |
 | Ranking (condition preference, percentile price norm) | ✅ Working | Dashboard returns ordered results |
 | Price history charts | ❌ Not implemented | |
@@ -61,11 +62,15 @@ _Tested with: DDR4 16GB search, scrape run triggered, results confirmed from DB_
 - [x] **รัน `alembic upgrade head` เป็น startup step** — done in docker-compose.yml entrypoint
 - [x] **Disable Shopee, AliExpress, Advice ใน DB** — confirmed `enabled=false` in DB
 - [x] รัน product clustering — processed=104, matched=88, created=16
-- [ ] Verify agent memory is loaded correctly in coder agent session
+- [x] Verify agent memory is loaded correctly in coder agent session
+- [x] Fix Lazada relevance filter — majority-token using keywords_en (fixed Nokia 3310 contamination)
+- [x] Fix dashboard API stale run bug — use latest completed run per source, not all runs
+- [x] Fix reference bar accessory contamination — keyword exclusion list (เคส, ฟิล์ม, protector, casing…)
 - [ ] Shopee cookies (user action required)
 - [ ] Facebook cookies + scraper (user action required)
 - [ ] Add alembic migration failure handling in entrypoint (exit code propagation)
 - [ ] Consider removing --reload flag in production docker-compose
+- [ ] JIB relevance filter — returns IT hardware (DDR4/DDR5 kits) for phone queries; needs keywords_en majority-token filter like Lazada
 
 ## Known Issues on This Machine
 
