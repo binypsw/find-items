@@ -19,7 +19,9 @@ from decimal import Decimal, InvalidOperation
 from typing import AsyncIterator
 
 import structlog
+from playwright_stealth import stealth_async
 
+from shared.config import get_settings
 from shared.scraper.base import AbstractScraper, ScraperConfig
 from shared.scraper.types import Condition, Currency, RawListing, SellerInfo, StructuredQuery
 
@@ -64,10 +66,23 @@ class ShopeeScraper(AbstractScraper):
             except Exception as exc:
                 log.debug("shopee.cookie_load_error", error=str(exc))
 
+        # Residential proxy support (BrightData format: http://user:pass@host:port).
+        # If SHOPEE_PROXY_URL is not set, proxy_kwargs stays None and is omitted.
+        proxy_kwargs: dict | None = None
+        proxy_url = get_settings().shopee_proxy_url
+        if proxy_url:
+            parsed = urllib.parse.urlparse(proxy_url)
+            proxy_kwargs = {
+                "server": f"{parsed.scheme}://{parsed.hostname}:{parsed.port}",
+                "username": parsed.username,
+                "password": parsed.password,
+            }
+            log.debug("shopee.proxy_enabled", server=proxy_kwargs["server"])
+
         captured_data: dict | None = None
 
         try:
-            async with self.deps.browserless.context(
+            ctx_kwargs = dict(
                 locale="th-TH",
                 # Override UA: Browserless headless Chrome includes "HeadlessChrome"
                 # which Shopee's bot detection flags. Use a real Windows Chrome UA.
@@ -80,8 +95,22 @@ class ShopeeScraper(AbstractScraper):
                     "Accept-Language": "th-TH,th;q=0.9,en-US;q=0.8",
                 },
                 viewport={"width": 1280, "height": 800},
-            ) as ctx:
+            )
+            if proxy_kwargs:
+                ctx_kwargs["proxy"] = proxy_kwargs
+
+            async with self.deps.browserless.context(**ctx_kwargs) as ctx:
                 page = await ctx.new_page()
+
+                # playwright-stealth patches WebGL, iframe isolation, permissions,
+                # media codecs, and other fingerprinting vectors beyond webdriver flag.
+                await stealth_async(page)
+
+                # Supplemental patches that playwright-stealth doesn't cover.
+                await page.add_init_script("""
+                    Object.defineProperty(navigator, 'deviceMemory', {get: () => 8});
+                    Object.defineProperty(screen, 'colorDepth', {get: () => 24});
+                """)
 
                 # Use route interception to capture the response body before it's GC'd.
                 # route.fetch() gives us our own response copy with a stable body.
@@ -107,17 +136,6 @@ class ShopeeScraper(AbstractScraper):
                             await route.continue_()
                         except Exception:
                             pass
-
-                # Stealth: mask Playwright automation markers that Shopee detects
-                await page.add_init_script("""
-                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-                    window.chrome = window.chrome || {runtime: {}};
-                    Object.defineProperty(navigator, 'plugins', {get: () => [1,2,3,4,5]});
-                    Object.defineProperty(navigator, 'languages', {get: () => ['th-TH', 'th', 'en-US', 'en']});
-                    Object.defineProperty(navigator, 'hardwareConcurrency', {get: () => 8});
-                    Object.defineProperty(navigator, 'deviceMemory', {get: () => 8});
-                    Object.defineProperty(screen, 'colorDepth', {get: () => 24});
-                """)
 
                 if stored_cookies:
                     # Inject stored session cookies before navigation so Shopee's

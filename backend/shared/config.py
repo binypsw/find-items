@@ -41,6 +41,7 @@ class Settings(BaseSettings):
 
     # Proxy (optional)
     proxy_pool_urls: str = ""
+    shopee_proxy_url: Optional[str] = None
 
     # Discord
     discord_webhook_url: Optional[str] = None
