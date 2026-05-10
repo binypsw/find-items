@@ -1,6 +1,6 @@
 # Find Item — Current Status
 
-_Last updated: 2026-05-10 — initial skeleton (unverified on this machine — .env missing)_
+_Last updated: 2026-05-10 — documentation restructure complete_
 _Next update: after first successful docker compose up + scrape run_
 
 ## Sources
@@ -38,3 +38,4 @@ _Next update: after first successful docker compose up + scrape run_
 - [ ] Verify all sources ด้วย scrape run จริง แล้วอัพ status table นี้
 - [ ] Shopee cookies (user action required)
 - [ ] Facebook cookies + scraper (user action required)
+- [ ] Verify agent memory is loaded correctly in coder agent session
