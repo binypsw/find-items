@@ -1,6 +1,6 @@
 # Find Item — Current Status
 
-_Last updated: 2026-05-10 — verified on new machine after docker compose up_
+_Last updated: 2026-05-10 — fixed migrations entrypoint, disabled non-functional sources, ran clustering_
 _Tested with: DDR4 16GB search, scrape run triggered, results confirmed from DB_
 
 ## Infrastructure
@@ -8,7 +8,7 @@ _Tested with: DDR4 16GB search, scrape run triggered, results confirmed from DB_
 | Component | Status | Notes |
 |---|---|---|
 | Docker compose | ✅ All 7 containers up | postgres, redis, api, worker, beat, frontend, browserless |
-| DB migrations | ✅ Run manually required | `docker exec find-items-api-1 alembic upgrade head` — DB was empty on first boot |
+| DB migrations | ✅ Auto-run on startup | `alembic upgrade head` runs before uvicorn in api entrypoint — no manual step needed |
 | nginx proxy (3001) | ✅ Working | `/api/*` routes proxy correctly after migrations |
 | API docs (direct) | ✅ Working | http://localhost:8000/docs accessible |
 | Frontend | ✅ Working | http://localhost:3001 returns 200 |
@@ -21,9 +21,9 @@ _Tested with: DDR4 16GB search, scrape run triggered, results confirmed from DB_
 | Priceza | ✅ Working | 23 | curl_cffi aggregator, fast (~2s) |
 | Lazada | ✅ Working | 40 | Browserless AJAX intercept (~10s) |
 | Kaidee | ✅ Working | 0 | Real data gap — no DDR4 listings on Kaidee |
-| Shopee | ❌ Bot blocked | 0 | error 90309999 — needs SPC_F, SPC_EC, SPC_U cookies; still enabled in DB |
-| Advice | ❌ Failed | 0 | Cloudflare block confirmed; Priceza covers it |
-| AliExpress | ❌ Failed | 0 | No real scraper — only stub; should be disabled |
+| Shopee | ❌ Disabled | 0 | error 90309999 — needs SPC_F, SPC_EC, SPC_U cookies; disabled in DB |
+| Advice | ⏸ Skipped | 0 | Cloudflare block confirmed; Priceza covers it; disabled in DB |
+| AliExpress | ❌ Disabled | 0 | No real scraper — only stub; disabled in DB |
 | Facebook | ❌ Disabled | — | Needs FB session cookies |
 
 ## Features
@@ -38,7 +38,7 @@ _Tested with: DDR4 16GB search, scrape run triggered, results confirmed from DB_
 | Celery worker + pubsub events | ✅ Working | item_found events published correctly |
 | Dashboard UI (sort, filter, auto-refresh, Run Now) | ✅ Expected working | Frontend up; not manually clicked |
 | New-vs-used comparison bar | ✅ Expected working | Code unchanged from last known working state |
-| Product clustering (sentence-transformers) | ⚠️ Not yet run | products table = 0; need to trigger recluster after scrape |
+| Product clustering (sentence-transformers) | ✅ Done — processed=104, matched=88, created=16 | products table populated (16 products) |
 | Ranking (condition preference, percentile price norm) | ✅ Working | Dashboard returns ordered results |
 | Price history charts | ❌ Not implemented | |
 | Discord notifications | ❌ Not implemented | |
@@ -50,7 +50,7 @@ _Tested with: DDR4 16GB search, scrape run triggered, results confirmed from DB_
 | Table | Count | Notes |
 |---|---|---|
 | listings | 104 | After 1 scrape run (JIB=41, Lazada=40, Priceza=23) |
-| products | 0 | Need to run `recluster_orphan_products` task |
+| products | 16 | Clustered via `recluster_orphan_products` (processed=104, matched=88, created=16) |
 | searches | 1 | DDR4 16GB test search |
 | scrape_runs | 7 | 1 run × 7 sources |
 
@@ -58,15 +58,18 @@ _Tested with: DDR4 16GB search, scrape run triggered, results confirmed from DB_
 
 - [x] สร้าง .env บนเครื่องนี้ และ verify docker compose up ทำงานได้
 - [x] Verify all sources ด้วย scrape run จริง แล้วอัพ status table นี้
-- [ ] **รัน `alembic upgrade head` เป็น startup step** (DB ว่างทุกครั้งที่ postgres volume ถูก reset)
-- [ ] **Disable Shopee, AliExpress, Advice ใน DB** — ยัง `enabled=true` แต่ล้มเหลวทุกครั้ง
-- [ ] รัน product clustering: `docker exec find-items-worker-1 python3 -c "from worker.celery_app import celery_app; celery_app.send_task('worker.tasks.scrape_task.recluster_orphan_products')"`
+- [x] **รัน `alembic upgrade head` เป็น startup step** — done in docker-compose.yml entrypoint
+- [x] **Disable Shopee, AliExpress, Advice ใน DB** — confirmed `enabled=false` in DB
+- [x] รัน product clustering — processed=104, matched=88, created=16
+- [ ] Verify agent memory is loaded correctly in coder agent session
 - [ ] Shopee cookies (user action required)
 - [ ] Facebook cookies + scraper (user action required)
-- [ ] Verify agent memory is loaded correctly in coder agent session
+- [ ] Add alembic migration failure handling in entrypoint (exit code propagation)
+- [ ] Consider removing --reload flag in production docker-compose
 
 ## Known Issues on This Machine
 
-- **DB empty on first boot**: Migrations must be run manually — `docker exec find-items-api-1 alembic upgrade head`. Consider adding this to docker-compose healthcheck or entrypoint.
-- **Shopee, AliExpress, Advice still `enabled=true` in DB seed**: These run on every scrape but always fail. Should be set to `enabled=false` to avoid wasted Browserless credits.
+- **DB empty on first boot**: Resolved — `alembic upgrade head` now runs automatically in api container entrypoint before uvicorn starts.
+- **alembic.ini hardcodes DB URL**: `sqlalchemy.url` in `backend/alembic.ini` is a literal string (`finditem:changeme@postgres`), not read from `.env`. Pre-existing issue — override via `alembic/env.py` or env var to fix properly.
+- **`--reload` in production**: api service uses `--reload` which is dev-only. Acceptable for now (dev project), but should be removed or overridden in a prod compose file.
 - **nginx `/api/docs` returns 404**: Normal — FastAPI serves docs at `/docs` not `/api/docs`. Use `http://localhost:8000/docs` directly.
