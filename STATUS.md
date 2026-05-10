@@ -65,12 +65,15 @@ _Tested with: DDR4 16GB + มือถือ samsung S24 Ultra มือสอ�
 - [x] Verify agent memory is loaded correctly in coder agent session
 - [x] Fix Lazada relevance filter — majority-token using keywords_en (fixed Nokia 3310 contamination)
 - [x] Fix dashboard API stale run bug — use latest completed run per source, not all runs
-- [x] Fix reference bar accessory contamination — keyword exclusion list (เคส, ฟิล์ม, protector, casing…)
+- [x] Fix reference bar accessory contamination — ACCESSORY_TERMS at module level + "casing" + multi-model detection (≥3 S-model numbers)
+- [x] Fix JIB relevance filter — majority-token on keywords_en + normalize_keywords prefers keywords_en
+- [x] Fix frontend: filter accessories from main results display; price floor for used results (< 15% of cheapest new = filtered)
+- [x] Switch coder/code-reviewer/scraper-research agent model to opus
+- [ ] ฿7,018 "4+128GB 8 แกน" / ฿10,000 fake "S26 Ultra" still appear (above ฿3,150 floor) — needs deeper clone detection
 - [ ] Shopee cookies (user action required)
 - [ ] Facebook cookies + scraper (user action required)
 - [ ] Add alembic migration failure handling in entrypoint (exit code propagation)
 - [ ] Consider removing --reload flag in production docker-compose
-- [ ] JIB relevance filter — returns IT hardware (DDR4/DDR5 kits) for phone queries; needs keywords_en majority-token filter like Lazada
 
 ## Known Issues on This Machine
 
