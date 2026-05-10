@@ -5,6 +5,23 @@ import { getTopListings, getSearchRuns, runSearch, getSearch } from "../api/clie
 import { ProductCard } from "./ProductCard";
 import type { RankedListing, ScrapeRun } from "../types";
 
+const ACCESSORY_TERMS = [
+  "เคส", "ฟิล์ม", "กระจก", "ซอง", "สาย", "ที่ชาร์จ", "แผ่น", "สติ๊กเกอร์",
+  "อะคริลิค", "แม่เหล็ก", "สายคล้อง", "ฟิล์มกันรอย",
+  "case", "casing", "film", "protector", "folio", "plate", "cable", "charger",
+  "cover", "sleeve", "pouch", "holder", "stand", "wallet",
+];
+// Accessories list compatibility with many model generations (e.g. "S23 S24 S25 S26").
+// Real phone listings contain exactly one model generation. ≥3 distinct S-model numbers
+// in a title is a reliable signal that the listing is an accessory, not a phone.
+const _SMODEL_RE = /\bs\d{2,3}\b/gi;
+const isAccessory = (title: string): boolean => {
+  const lower = title.toLowerCase();
+  if (ACCESSORY_TERMS.some((t) => lower.includes(t))) return true;
+  const models = new Set((lower.match(_SMODEL_RE) ?? []).map((m) => m.toLowerCase()));
+  return models.size >= 3;
+};
+
 const COLORS = {
   primary: "#2563eb",
   success: "#16a34a",
@@ -152,10 +169,36 @@ function ResultsTab({
     } else {
       list = data.filter((l) => l.condition === condFilter);
     }
+    // Remove pure accessory listings (cases, films, cables) from display results
+    list = list.filter((l) => !isAccessory(l.title));
+
+    // Price sanity filter for used results: items priced < 15% of the cheapest
+    // legitimate new-condition listing are almost certainly fakes or clones
+    // (e.g. ฿781 "Samsung S24 Ultra" when real new price is ฿21,000).
+    if (condFilter === "used" && data.length > 0) {
+      const pq = searchMeta?.parsed_query;
+      const refTokens = [...(pq?.keywords_en ?? []), ...(pq?.keywords ?? [])]
+        .map((k) => k.toLowerCase().trim()).filter((k) => k.length > 1);
+      const uniq = [...new Set(refTokens)];
+      const minMatch = uniq.length > 0 ? Math.ceil(uniq.length / 2) : 0;
+      const isRelevant = (title: string) => {
+        if (uniq.length === 0) return true;
+        const lower = title.toLowerCase();
+        return uniq.filter((tok) => lower.includes(tok)).length >= minMatch;
+      };
+      const newPrices = data
+        .filter((l) => l.condition === "new" && isRelevant(l.title) && !isAccessory(l.title))
+        .map((l) => l.current_price_thb);
+      if (newPrices.length > 0) {
+        const floor = Math.min(...newPrices) * 0.15;
+        list = list.filter((l) => l.current_price_thb >= floor);
+      }
+    }
+
     if (sort === "price_asc") return [...list].sort((a, b) => a.current_price_thb - b.current_price_thb);
     if (sort === "price_desc") return [...list].sort((a, b) => b.current_price_thb - a.current_price_thb);
     return [...list].sort((a, b) => b.score - a.score);
-  }, [data, sort, condFilter]);
+  }, [data, sort, condFilter, searchMeta]);
 
   // Cheapest new-condition listing per source — used as reference when browsing used items.
   // Strict relevance check: item title must match the majority of search keywords so that
@@ -185,20 +228,6 @@ function ResultsTab({
       const lower = title.toLowerCase();
       const matched = uniqueTokens.filter((tok) => lower.includes(tok)).length;
       return matched >= minMatch;
-    };
-
-    // Accessory exclusion: sites like Priceza/BNN return phone cases, films, cables etc.
-    // alongside actual products. These share model name tokens ("Samsung S24 Ultra") for compatibility
-    // but are priced at ฿29-฿350. Exclude items whose titles contain accessory signal words.
-    const ACCESSORY_TERMS = [
-      "เคส", "ฟิล์ม", "กระจก", "ซอง", "สาย", "ที่ชาร์จ", "แผ่น", "สติ๊กเกอร์",
-      "อะคริลิค", "แม่เหล็ก", "สายคล้อง", "ฟิล์มกันรอย",
-      "case", "film", "protector", "folio", "plate", "cable", "charger",
-      "cover", "sleeve", "pouch", "holder", "stand", "wallet",
-    ];
-    const isAccessory = (title: string): boolean => {
-      const lower = title.toLowerCase();
-      return ACCESSORY_TERMS.some((t) => lower.includes(t));
     };
 
     const bySource: Record<string, { price: number; url: string }> = {};

@@ -36,6 +36,12 @@ class JibScraper(AbstractScraper):
     base_url = _BASE_URL
     config = ScraperConfig(tier="direct", rate_limit_rps=0.5)
 
+    def normalize_keywords(self, query: StructuredQuery) -> str:
+        # JIB indexes products by English name — prefer keywords_en for search accuracy
+        if query.keywords_en:
+            return " ".join(query.keywords_en).strip()
+        return super().normalize_keywords(query)
+
     async def search(self, query: StructuredQuery, limit: int = 50) -> AsyncIterator[RawListing]:
         from curl_cffi.requests import AsyncSession
         from bs4 import BeautifulSoup
@@ -43,10 +49,22 @@ class JibScraper(AbstractScraper):
         keyword = self.normalize_keywords(query)
         pages_needed = math.ceil(limit / _ITEMS_PER_PAGE)
 
-        # Build relevance tokens from keyword for post-fetch filtering
-        relevance_tokens = [t.lower() for t in keyword.split() if len(t) > 1]
+        # Majority-token relevance filter using keywords_en (same logic as Lazada).
+        # OR-logic on raw_query caused DDR4/DDR5 memory kits to appear in phone
+        # searches because "samsung" matched. Majority-token requires ceil(n/2) of
+        # product-identifying tokens to appear in the title.
+        if query.keywords_en:
+            relevance_tokens = [t.lower() for t in query.keywords_en if len(t) > 1]
+        else:
+            relevance_tokens = [t.lower() for t in keyword.split() if len(t) > 1]
+        min_match = max(1, math.ceil(len(relevance_tokens) / 2))
+
+        def _is_relevant(title: str) -> bool:
+            tl = title.lower()
+            return sum(1 for tok in relevance_tokens if tok in tl) >= min_match
 
         yielded = 0
+        skipped = 0
 
         async with AsyncSession(impersonate="chrome124") as session:
             for page in range(pages_needed):
@@ -77,9 +95,8 @@ class JibScraper(AbstractScraper):
                     if listing is None:
                         continue
 
-                    # Relevance filter: at least one search token must appear in the title
-                    title_lower = listing.title.lower()
-                    if relevance_tokens and not any(tok in title_lower for tok in relevance_tokens):
+                    if not _is_relevant(listing.title):
+                        skipped += 1
                         continue
 
                     yield listing
@@ -96,6 +113,9 @@ class JibScraper(AbstractScraper):
                     break
 
                 await asyncio.sleep(1.0 / self.config.rate_limit_rps)
+
+        if skipped:
+            self.deps.logger.info("jib.relevance_filtered", skipped=skipped, yielded=yielded, keyword=keyword)
 
     async def get_detail(self, url: str) -> RawListing | None:
         from curl_cffi.requests import AsyncSession
