@@ -43,7 +43,7 @@ class CookieStore:
         )
         session = result.scalar_one_or_none()
         if not session:
-            log.warning("cookie_store.no_active_session", source_id=source_id)
+            log.debug("cookie_store.no_active_session", source_id=source_id)
             return None
         try:
             raw = session.cookies.get("_encrypted")

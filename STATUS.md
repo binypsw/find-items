@@ -22,7 +22,7 @@ _Tested with: DDR4 16GB + S24 Ultra มือสอง (11 clean results, no fak
 | Priceza | ✅ Working | 23 | curl_cffi aggregator, fast (~2s) |
 | Lazada | ✅ Working | 29 | Browserless AJAX intercept; majority-token relevance filter (keywords_en) |
 | Kaidee | ✅ Working | 0 | Real data gap — no DDR4 listings on Kaidee |
-| Shopee | ❌ Disabled | 0 | error 90309999 — needs SPC_F, SPC_EC, SPC_U cookies; disabled in DB |
+| Shopee | ⏳ Ready (awaiting cookies) | 0 | Cookie injection implemented — needs SPC_F, SPC_EC, SPC_U cookies seeded via POST /api/sessions |
 | Advice | ⏸ Skipped | 0 | Cloudflare block confirmed; Priceza covers it; disabled in DB |
 | AliExpress | ❌ Disabled | 0 | No real scraper — only stub; disabled in DB |
 | Facebook | ❌ Disabled | — | Needs FB session cookies |
@@ -43,7 +43,7 @@ _Tested with: DDR4 16GB + S24 Ultra มือสอง (11 clean results, no fak
 | Ranking (condition preference, percentile price norm) | ✅ Working | Dashboard returns ordered results |
 | Price history charts | ❌ Not implemented | |
 | Discord notifications | ❌ Not implemented | |
-| Shopee scraper | ❌ Blocked | Bot detection 90309999 — needs cookies |
+| Shopee scraper | ⏳ Ready (awaiting cookies) | Cookie injection in `shopee.py` done; enable after seeding cookies |
 | Facebook scraper | ❌ Blocked | Needs FB session cookies |
 
 ## Data State
@@ -71,7 +71,7 @@ _Tested with: DDR4 16GB + S24 Ultra มือสอง (11 clean results, no fak
 - [x] Switch coder/code-reviewer/scraper-research agent model to opus, then reverted to sonnet
 - [x] Fix clone/fake phone detection: model-number filter (keywords_en token like "s24" must appear in title) + raise price floor 15%→35% (catches ฿7,018 clone + ฿10,000 S26 Ultra)
 - [x] Verified non-electronics search (แก้วน้ำ richell): model-number filter doesn't affect non-model-number queries; 37 clean results
-- [ ] Shopee cookies (user action required)
+- [ ] Shopee cookies: extract from browser → `POST /api/sessions` `{"source_id":"shopee","label":"YYYY-MM-DD","cookies_json":"[...]"}` → `UPDATE sources SET enabled=true WHERE id='shopee'`
 - [ ] Facebook cookies + scraper (user action required)
 - [ ] Add alembic migration failure handling in entrypoint (exit code propagation)
 - [ ] Consider removing --reload flag in production docker-compose

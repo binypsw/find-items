@@ -55,6 +55,15 @@ class ShopeeScraper(AbstractScraper):
         encoded_kw = urllib.parse.quote(keyword)
         search_url = _SEARCH_PAGE.format(keyword=encoded_kw)
 
+        # Load stored cookies (SPC_F, SPC_EC, SPC_U, etc.) if available.
+        # User must POST to /api/sessions with source_id="shopee" to seed them.
+        stored_cookies: list[dict] | None = None
+        if self.deps.cookie_store:
+            try:
+                stored_cookies = await self.deps.cookie_store.get_active("shopee")
+            except Exception as exc:
+                log.debug("shopee.cookie_load_error", error=str(exc))
+
         captured_data: dict | None = None
 
         try:
@@ -100,18 +109,27 @@ class ShopeeScraper(AbstractScraper):
                     Object.defineProperty(navigator, 'languages', {get: () => ['th-TH', 'th', 'en-US', 'en']});
                 """)
 
-                try:
-                    # Warm-up: visit homepage first so Shopee's JS can set SPC_F and
-                    # other session cookies that the search API validates.
-                    await page.goto(
-                        "https://shopee.co.th/",
-                        wait_until="domcontentloaded",
-                        timeout=20_000,
-                    )
-                    # Let Shopee's tracking JS run and set cookies
-                    await asyncio.sleep(4)
-                except Exception as exc:
-                    log.debug("shopee.warmup_timeout", error=str(exc))
+                if stored_cookies:
+                    # Inject stored session cookies directly — skips warmup navigation.
+                    try:
+                        await ctx.add_cookies(stored_cookies)
+                        log.info("shopee.cookies_injected", count=len(stored_cookies), keyword=keyword)
+                    except Exception as exc:
+                        log.warning("shopee.cookie_inject_error", error=str(exc))
+                        stored_cookies = None  # fall through to warmup below
+
+                if not stored_cookies:
+                    # No stored cookies — visit homepage so Shopee's JS can generate
+                    # SPC_F and other session tokens before the search API call.
+                    try:
+                        await page.goto(
+                            "https://shopee.co.th/",
+                            wait_until="domcontentloaded",
+                            timeout=20_000,
+                        )
+                        await asyncio.sleep(4)
+                    except Exception as exc:
+                        log.debug("shopee.warmup_timeout", error=str(exc))
 
                 # Lambda predicate ensures the URL match works regardless of glob rules
                 await page.route(
@@ -139,15 +157,16 @@ class ShopeeScraper(AbstractScraper):
             return
 
         if not captured_data or captured_data.get("error"):
-            log.warning(
-                "shopee.api_error_fallback_dom",
-                error_code=captured_data.get("error") if captured_data else None,
-                keyword=keyword,
-            )
-            # The API requires SPC_F token (Shopee bot-detection).
-            # Fall back to extracting product data embedded in window.__NEXT_DATA__
-            # or React/Redux state from the rendered page.
-            captured_data = None  # signal: use DOM path below
+            error_code = captured_data.get("error") if captured_data else None
+            if error_code == 90309999 and stored_cookies:
+                log.warning(
+                    "shopee.cookies_expired",
+                    keyword=keyword,
+                    hint="Re-extract SPC_F/SPC_EC/SPC_U from browser and POST to /api/sessions",
+                )
+            else:
+                log.warning("shopee.api_error", error_code=error_code, keyword=keyword)
+            captured_data = None
 
         items = (captured_data.get("response") or {}).get("items") if captured_data else []
         if not items:
