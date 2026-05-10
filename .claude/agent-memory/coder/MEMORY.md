@@ -1,0 +1,2 @@
+- [Scraper Site Quirks](scraper_site_quirks.md) — Lazada/Kaidee/BNN/Priceza/Shopee quirks and gotchas
+- [Sites To Avoid](sites_to_avoid.md) — banana.co.th (software co), it24hrs.com (blog) — not IT stores
