@@ -28,9 +28,10 @@ frontend/.vite/
 postgres_data/
 redis_data/
 
-# Claude Code local tooling (machine-specific paths — but agent-memory/ is shared)
+# Claude Code local tooling (machine-specific paths — but agent-memory/ and agents/ are shared)
 .claude/*
 !.claude/agent-memory/
+!.claude/agents/
 
 # Editors
 .vscode/
