@@ -28,10 +28,19 @@ frontend/.vite/
 postgres_data/
 redis_data/
 
-# Claude Code local tooling (machine-specific paths — but agent-memory/ and agents/ are shared)
+# Claude Code local tooling
 .claude/*
 !.claude/agent-memory/
 !.claude/agents/
+
+# Debug / scratch scripts (local dev only)
+scripts/
+
+# Playwright MCP console logs
+.playwright-mcp/
+
+# Superpowers plugin generated docs
+docs/superpowers/
 
 # Editors
 .vscode/
