@@ -47,5 +47,21 @@
   "sort_price_asc": "Price ↑",
   "sort_price_desc": "Price ↓",
   "new_ref_label": "New price reference:",
-  "new_ref_hint": "Cheapest new price in the system — to compare value"
+  "new_ref_hint": "Cheapest new price in the system — to compare value",
+  "watchlist_title": "Watchlist",
+  "watchlist_coming_soon": "Coming soon",
+  "price_change_period": "this week",
+  "cheaper_than_new": "{{pct}}% cheaper than new",
+  "cheapest_new_tooltip": "Cheapest new: ฿{{price}}",
+  "add_session_btn": "Add Session",
+  "add_session_title": "Add Session",
+  "edit_session_title": "Edit Session",
+  "edit_btn": "Edit",
+  "field_label": "Label",
+  "field_source": "Source",
+  "field_cookies": "Cookies JSON",
+  "cancel_btn": "Cancel",
+  "save_btn": "Save",
+  "saving": "Saving…",
+  "delete_confirm": "Delete session \"{{label}}\"?"
 }

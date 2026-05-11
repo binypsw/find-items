@@ -28,13 +28,12 @@ interface FeedEntry {
   ts: Date;
 }
 
-let _seq = 0;
-
 export function LiveFeed() {
   const { t, i18n } = useTranslation();
   const [entries, setEntries] = useState<FeedEntry[]>([]);
   const [connected, setConnected] = useState(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const seqRef = useRef(0);
 
   useEffect(() => {
     let ws: WebSocket;
@@ -44,7 +43,10 @@ export function LiveFeed() {
       try {
         ws = createRunWebSocket();
 
-        ws.onopen = () => setConnected(true);
+        ws.onopen = () => {
+          ws.send(JSON.stringify({ subscribe: "all" }));
+          setConnected(true);
+        };
         ws.onclose = () => {
           setConnected(false);
           retryTimer = setTimeout(connect, 5000);
@@ -55,7 +57,7 @@ export function LiveFeed() {
           try {
             const event: RunEvent = JSON.parse(msg.data);
             setEntries((prev) => {
-              const next = [...prev, { id: ++_seq, event, ts: new Date() }];
+              const next = [...prev, { id: ++seqRef.current, event, ts: new Date() }];
               return next.slice(-50); // keep last 50
             });
           } catch {
@@ -75,9 +77,11 @@ export function LiveFeed() {
     };
   }, []);
 
-  // Auto-scroll to bottom when new entries arrive
+  // Always auto-scroll to bottom on new entries (terminal-like)
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    const el = containerRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
   }, [entries]);
 
   const formatTime = (d: Date) =>
@@ -125,13 +129,13 @@ export function LiveFeed() {
 
       {/* Feed */}
       <div
+        ref={containerRef}
         style={{
           flex: 1,
           overflowY: "auto",
           display: "flex",
           flexDirection: "column",
           gap: "0.3rem",
-          maxHeight: 320,
         }}
       >
         {entries.length === 0 ? (
@@ -177,7 +181,6 @@ export function LiveFeed() {
             );
           })
         )}
-        <div ref={bottomRef} />
       </div>
     </div>
   );

@@ -18,6 +18,7 @@ from typing import AsyncIterator
 import structlog
 
 from shared.scraper.base import AbstractScraper, ScraperConfig
+from shared.scraper.relevance import calc_min_match, normalize_title
 from shared.scraper.types import Condition, Currency, RawListing, SellerInfo, StructuredQuery
 
 log = structlog.get_logger()
@@ -102,9 +103,15 @@ class PricezaScraper(AbstractScraper):
             log.info("priceza.no_items", keyword=keyword)
             return
 
-        # Relevance filter: require title to contain majority of keyword tokens
-        tokens = [t.lower() for t in keyword.split() if len(t) > 1]
-        min_match = max(1, len(tokens) // 2) if tokens else 0
+        # Relevance filter: prefer keywords_en (English product names work better on
+        # Priceza), fall back to raw keyword split. Uses shared calc_min_match so the
+        # threshold is consistent with JIB/Lazada. Bundle exclusion rejects computer-set
+        # listings when the query is for a specific component (RAM, SSD, GPU, etc.).
+        if query.keywords_en:
+            relevance_tokens = [t.lower() for t in query.keywords_en if len(t) > 1]
+        else:
+            relevance_tokens = [t.lower() for t in keyword.split() if len(t) > 1]
+        min_match = calc_min_match(relevance_tokens) if relevance_tokens else 0
 
         skipped = 0
         yielded = 0
@@ -117,9 +124,9 @@ class PricezaScraper(AbstractScraper):
             if listing is None:
                 continue
 
-            if tokens:
-                title_lower = listing.title.lower()
-                matched = sum(1 for tok in tokens if tok in title_lower)
+            if relevance_tokens:
+                title_lower = normalize_title(listing.title)
+                matched = sum(1 for tok in relevance_tokens if tok in title_lower)
                 if matched < min_match:
                     skipped += 1
                     continue
@@ -169,11 +176,11 @@ class PricezaScraper(AbstractScraper):
             if price is None or price <= 0:
                 return None
 
-            # Image
+            # Image — non-lazy items use src; lazy-loaded items store URL in data-original
             img_el = item.select_one("img.pz-pdb_media--img")
             image_urls = []
             if img_el:
-                src = img_el.get("src", "")
+                src = img_el.get("src", "") or img_el.get("data-original", "")
                 if src.startswith("http") and "default.svg" not in src:
                     image_urls.append(src)
 

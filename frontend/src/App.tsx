@@ -5,6 +5,7 @@ import { SavedSearches } from "./components/SavedSearches";
 import { ResultsDashboard } from "./components/ResultsDashboard";
 import { SourcesPanel } from "./components/SourcesPanel";
 import { LiveFeed } from "./components/LiveFeed";
+import { SessionsPanel } from "./components/SessionsPanel";
 
 const COLORS = {
   primary: "#2563eb",
@@ -15,12 +16,14 @@ const COLORS = {
   card: "#fff",
 };
 
-type MainTab = "results" | "sources" | "live";
+type MainTab = "results" | "sources" | "live" | "sessions";
 
 export default function App() {
   const { t, i18n } = useTranslation();
   const [selectedSearchId, setSelectedSearchId] = useState<number | null>(null);
   const [mainTab, setMainTab] = useState<MainTab>("results");
+  const [sourcesVisited, setSourcesVisited] = useState(false);
+  const [sessionsVisited, setSessionsVisited] = useState(false);
 
   return (
     <div
@@ -153,11 +156,16 @@ export default function App() {
                 { key: "results", label: t("results_tab") },
                 { key: "sources", label: t("sources_tab") },
                 { key: "live", label: t("live_feed_title") },
+                { key: "sessions", label: t("sessions_tab") },
               ] as { key: MainTab; label: string }[]
             ).map(({ key, label }) => (
               <button
                 key={key}
-                onClick={() => setMainTab(key)}
+                onClick={() => {
+                  setMainTab(key);
+                  if (key === "sources") setSourcesVisited(true);
+                  if (key === "sessions") setSessionsVisited(true);
+                }}
                 style={{
                   padding: "0.75rem 1rem",
                   border: "none",
@@ -178,13 +186,20 @@ export default function App() {
             ))}
           </div>
 
-          {/* Tab panels */}
-          <div style={{ flex: 1, overflowY: "auto" }}>
-            {mainTab === "results" && (
+          {/* Tab panels — all kept mounted to preserve filter/sort state */}
+          <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
+            <div style={{ display: mainTab === "results" ? "flex" : "none", flexDirection: "column", height: "100%", overflowY: "auto" }}>
               <ResultsDashboard selectedSearchId={selectedSearchId} />
-            )}
-            {mainTab === "sources" && <SourcesPanel />}
-            {mainTab === "live" && <LiveFeed />}
+            </div>
+            <div style={{ display: mainTab === "sources" ? "block" : "none", height: "100%", overflowY: "auto" }}>
+              <SourcesPanel enabled={sourcesVisited} />
+            </div>
+            <div style={{ display: mainTab === "live" ? "flex" : "none", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+              <LiveFeed />
+            </div>
+            <div style={{ display: mainTab === "sessions" ? "block" : "none", height: "100%", overflowY: "auto" }}>
+              <SessionsPanel enabled={sessionsVisited} />
+            </div>
           </div>
         </main>
       </div>

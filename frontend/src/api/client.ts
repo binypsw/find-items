@@ -41,6 +41,8 @@ export const updateSource = (id: string, body: Partial<Source>) =>
 export const getSessions = () => api.get<AccountSession[]>("/sessions").then((r) => r.data);
 export const createSession = (body: { source_id: string; label: string; cookies_json: string }) =>
   api.post<AccountSession>("/sessions", body).then((r) => r.data);
+export const updateSession = (id: number, body: { label?: string; cookies_json?: string }) =>
+  api.patch<AccountSession>(`/sessions/${id}`, body).then((r) => r.data);
 export const deleteSession = (id: number) => api.delete(`/sessions/${id}`);
 
 // Runs

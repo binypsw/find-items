@@ -1,3 +1,4 @@
+import { useState, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getSources, updateSource } from "../api/client";
@@ -28,20 +29,47 @@ const HEALTH_COLORS: Record<string, string> = {
   unknown: COLORS.muted,
 };
 
-export function SourcesPanel() {
+interface SourcesPanelProps {
+  enabled?: boolean;
+}
+
+export function SourcesPanel({ enabled = true }: SourcesPanelProps) {
   const { t, i18n } = useTranslation();
   const qc = useQueryClient();
+  const [toggleErrors, setToggleErrors] = useState<Record<string, string>>({});
+  const toggleErrorTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  useEffect(() => {
+    return () => {
+      toggleErrorTimers.current.forEach((timer) => clearTimeout(timer));
+    };
+  }, []);
 
   const { data: sources = [], isLoading } = useQuery({
     queryKey: ["sources"],
     queryFn: getSources,
-    refetchInterval: 30000,
+    refetchInterval: enabled ? 30000 : false,
+    enabled,
   });
 
   const toggleMut = useMutation({
     mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
       updateSource(id, { enabled }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["sources"] }),
+    onError: (_err, variables) => {
+      const { id } = variables;
+      setToggleErrors((prev) => ({ ...prev, [id]: "Failed to update — try again" }));
+      const existingTimer = toggleErrorTimers.current.get(id);
+      if (existingTimer) clearTimeout(existingTimer);
+      const timer = setTimeout(() => {
+        setToggleErrors((prev) => {
+          const n = { ...prev };
+          delete n[id];
+          return n;
+        });
+      }, 4000);
+      toggleErrorTimers.current.set(id, timer);
+    },
   });
 
   const formatDate = (d: string | null) =>
@@ -124,14 +152,21 @@ export function SourcesPanel() {
                   <span style={{ fontSize: "0.75rem", color: COLORS.muted }}>
                     {source.enabled
                       ? i18n.language === "th"
-                        ? "เปิด"
-                        : "On"
+                        ? "เปิดใช้งาน"
+                        : "Enabled"
                       : i18n.language === "th"
-                      ? "ปิด"
-                      : "Off"}
+                      ? "ปิดใช้งาน"
+                      : "Disabled"}
                   </span>
                 </label>
               </div>
+
+              {/* Toggle error */}
+              {toggleErrors[source.id] && (
+                <div style={{ color: "#ef4444", fontSize: "0.7rem", marginTop: "0.25rem" }}>
+                  {toggleErrors[source.id]}
+                </div>
+              )}
 
               {/* Credit bar */}
               {budget > 0 && (
@@ -145,7 +180,12 @@ export function SourcesPanel() {
                       marginBottom: "0.25rem",
                     }}
                   >
-                    <span>{t("credits_used_label")}</span>
+                    <span
+                      title="1 credit = 1 API request per listing scraped. Budget resets monthly."
+                      style={{ cursor: "help" }}
+                    >
+                      {t("credits_used_label")}
+                    </span>
                     <span>
                       {used.toLocaleString()} / {budget.toLocaleString()}
                     </span>

@@ -1,15 +1,14 @@
 """Shopee Thailand scraper.
 
-Uses Browserless (Playwright) to navigate the Shopee search page with a real
-Chromium browser, then intercepts the internal JSON search API response.
+Uses Camoufox (anti-detect Firefox) to navigate the Shopee search page,
+then intercepts the internal JSON search API response.
 
 Anti-bot strategy:
-- Real Chromium via Browserless — JS runs, SPC_F / SPC_EC / SPC_CDS cookies
-  are set by Shopee's own front-end code before the API call fires.
-- Network response interception captures the search result JSON without needing
-  to reverse-engineer cookie generation.
+- Camoufox patches Firefox at the binary level to pass Akamai Bot Manager
+  fingerprint checks (JA3/JA4 TLS, navigator properties, canvas, WebGL, etc.)
+- Route interception captures the search result JSON.
 
-Credit cost: 0 (uses our own Browserless container, no paid proxy).
+Credit cost: 0 (local Firefox via Camoufox, no paid service).
 """
 import asyncio
 import json as jsonlib
@@ -19,7 +18,7 @@ from decimal import Decimal, InvalidOperation
 from typing import AsyncIterator
 
 import structlog
-from playwright_stealth import stealth_async
+from camoufox.async_api import AsyncCamoufox
 
 from shared.config import get_settings
 from shared.scraper.base import AbstractScraper, ScraperConfig
@@ -81,39 +80,21 @@ class ShopeeScraper(AbstractScraper):
 
         captured_data: dict | None = None
 
+        launch_kwargs: dict = dict(
+            headless=True,
+            os="windows",
+            locale=["th-TH", "en-US"],
+        )
+        if proxy_kwargs:
+            launch_kwargs["proxy"] = proxy_kwargs
+
         try:
-            ctx_kwargs = dict(
-                locale="th-TH",
-                # Override UA: Browserless headless Chrome includes "HeadlessChrome"
-                # which Shopee's bot detection flags. Use a real Windows Chrome UA.
-                user_agent=(
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/131.0.0.0 Safari/537.36"
-                ),
-                extra_http_headers={
-                    "Accept-Language": "th-TH,th;q=0.9,en-US;q=0.8",
-                },
-                viewport={"width": 1280, "height": 800},
-            )
-            if proxy_kwargs:
-                ctx_kwargs["proxy"] = proxy_kwargs
+            async with AsyncCamoufox(**launch_kwargs) as browser:
+                # Use new_page() so fingerprint patches from Camoufox apply to
+                # the auto-created default context. new_context() would bypass them.
+                page = await browser.new_page()
+                ctx = page.context
 
-            async with self.deps.browserless.context(**ctx_kwargs) as ctx:
-                page = await ctx.new_page()
-
-                # playwright-stealth patches WebGL, iframe isolation, permissions,
-                # media codecs, and other fingerprinting vectors beyond webdriver flag.
-                await stealth_async(page)
-
-                # Supplemental patches that playwright-stealth doesn't cover.
-                await page.add_init_script("""
-                    Object.defineProperty(navigator, 'deviceMemory', {get: () => 8});
-                    Object.defineProperty(screen, 'colorDepth', {get: () => 24});
-                """)
-
-                # Use route interception to capture the response body before it's GC'd.
-                # route.fetch() gives us our own response copy with a stable body.
                 async def _intercept_api(route):
                     nonlocal captured_data
                     try:
@@ -138,8 +119,6 @@ class ShopeeScraper(AbstractScraper):
                             pass
 
                 if stored_cookies:
-                    # Inject stored session cookies before navigation so Shopee's
-                    # homepage JS sees a recognised session and can refresh SPC_ST.
                     try:
                         await ctx.add_cookies(stored_cookies)
                         log.info("shopee.cookies_injected", count=len(stored_cookies), keyword=keyword)
@@ -147,53 +126,44 @@ class ShopeeScraper(AbstractScraper):
                         log.warning("shopee.cookie_inject_error", error=str(exc))
                         stored_cookies = None
 
-                # Always visit homepage: Shopee's JS uses it to refresh short-lived
-                # tokens (SPC_ST) even when session cookies are already present.
-                # With stored cookies the session is recognised immediately, so 2s
-                # is enough; without cookies we need 4s for cold token generation.
                 warmup_sleep = 2 if stored_cookies else 4
                 try:
                     await page.goto(
                         "https://shopee.co.th/",
-                        wait_until="domcontentloaded",
-                        timeout=20_000,
+                        wait_until="commit",
+                        timeout=30_000,
                     )
                     await asyncio.sleep(warmup_sleep)
                 except Exception as exc:
                     log.debug("shopee.warmup_timeout", error=str(exc))
 
-                # Lambda predicate ensures the URL match works regardless of glob rules
                 await page.route(
                     lambda url: _SEARCH_API_PATTERN in url,
                     _intercept_api,
                 )
 
                 try:
-                    # Navigate to search page — domcontentloaded because networkidle
-                    # never fires on Shopee's SPA
                     await page.goto(
                         search_url,
-                        wait_until="domcontentloaded",
-                        timeout=25_000,
+                        wait_until="commit",
+                        timeout=30_000,
                     )
-                    # Give Shopee's JS time to fire the search API call
-                    await asyncio.sleep(5)
+                    await asyncio.sleep(8)
                 except Exception as exc:
                     log.debug("shopee.goto_timeout", error=str(exc))
 
-                await page.close()
-
         except Exception as exc:
-            log.warning("shopee.browserless_error", error=str(exc), keyword=keyword)
+            log.warning("shopee.camoufox_error", error=str(exc), keyword=keyword)
             return
 
         if not captured_data or captured_data.get("error"):
             error_code = captured_data.get("error") if captured_data else None
-            if error_code == 90309999 and stored_cookies:
+            if error_code == 90309999:
                 log.warning(
-                    "shopee.cookies_expired",
+                    "shopee.bot_blocked",
                     keyword=keyword,
-                    hint="Re-extract SPC_F/SPC_EC/SPC_U from browser and POST to /api/sessions",
+                    has_cookies=bool(stored_cookies),
+                    hint="Akamai Bot Manager — redirects to verify/traffic/error. Needs Scrapfly or anti-detect browser.",
                 )
             else:
                 log.warning("shopee.api_error", error_code=error_code, keyword=keyword)

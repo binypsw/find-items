@@ -14,6 +14,7 @@ from decimal import Decimal, InvalidOperation
 from typing import AsyncIterator
 
 from shared.scraper.base import AbstractScraper, ScraperConfig
+from shared.scraper.relevance import calc_min_match, normalize_title
 from shared.scraper.types import Condition, Currency, RawListing, SellerInfo, StructuredQuery
 
 _BASE_URL = "https://www.jib.co.th"
@@ -57,10 +58,10 @@ class JibScraper(AbstractScraper):
             relevance_tokens = [t.lower() for t in query.keywords_en if len(t) > 1]
         else:
             relevance_tokens = [t.lower() for t in keyword.split() if len(t) > 1]
-        min_match = max(1, math.ceil(len(relevance_tokens) / 2))
+        min_match = calc_min_match(relevance_tokens)
 
         def _is_relevant(title: str) -> bool:
-            tl = title.lower()
+            tl = normalize_title(title)
             return sum(1 for tok in relevance_tokens if tok in tl) >= min_match
 
         yielded = 0

@@ -205,8 +205,8 @@ def upgrade() -> None:
     op.execute("""
         INSERT INTO sources (id, name, base_url, tier, enabled, monthly_credit_budget) VALUES
         ('kaidee',   'Kaidee.com',           'https://www.kaidee.com',          'direct',      true, 0),
-        ('shopee',   'Shopee Thailand',       'https://shopee.co.th',            'managed_api', true, 60000),
-        ('lazada',   'Lazada Thailand',       'https://www.lazada.co.th',        'managed_api', true, 60000),
+        ('shopee',   'Shopee Thailand',       'https://shopee.co.th',            'browserless', false, 0),
+        ('lazada',   'Lazada Thailand',       'https://www.lazada.co.th',        'browserless', true, 0),
         ('facebook', 'Facebook Marketplace', 'https://www.facebook.com/marketplace', 'managed_api', false, 30000),
         ('aliexpress','AliExpress',           'https://www.aliexpress.com',       'browserless', true, 0),
         ('priceza',  'Priceza',               'https://www.priceza.com',          'direct',      true, 0),

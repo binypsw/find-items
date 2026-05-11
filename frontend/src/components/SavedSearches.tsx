@@ -1,3 +1,4 @@
+import { useState, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getSearches, runSearch, deleteSearch } from "../api/client";
@@ -41,6 +42,18 @@ function relativeTime(dateStr: string, lang: string): string {
 export function SavedSearches({ selectedId, onSelect }: SavedSearchesProps) {
   const { t, i18n } = useTranslation();
   const qc = useQueryClient();
+  const [runError, setRunError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [isRunningAll, setIsRunningAll] = useState(false);
+  const runErrorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const deleteErrorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (runErrorTimer.current) clearTimeout(runErrorTimer.current);
+      if (deleteErrorTimer.current) clearTimeout(deleteErrorTimer.current);
+    };
+  }, []);
 
   const { data: searches = [], isLoading } = useQuery({
     queryKey: ["searches"],
@@ -52,6 +65,12 @@ export function SavedSearches({ selectedId, onSelect }: SavedSearchesProps) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["searches"] });
     },
+    onError: (err: unknown) => {
+      const msg = err instanceof Error ? err.message : "Failed to run search";
+      setRunError(msg);
+      if (runErrorTimer.current) clearTimeout(runErrorTimer.current);
+      runErrorTimer.current = setTimeout(() => setRunError(null), 5000);
+    },
   });
 
   const deleteMut = useMutation({
@@ -59,17 +78,28 @@ export function SavedSearches({ selectedId, onSelect }: SavedSearchesProps) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["searches"] });
     },
+    onError: (err: unknown) => {
+      const msg = err instanceof Error ? err.message : "Failed to delete search";
+      setDeleteError(msg);
+      if (deleteErrorTimer.current) clearTimeout(deleteErrorTimer.current);
+      deleteErrorTimer.current = setTimeout(() => setDeleteError(null), 5000);
+    },
   });
 
   const runAll = async () => {
-    for (const s of searches) {
-      try {
-        await runSearch(s.id);
-      } catch {
-        // continue
+    setIsRunningAll(true);
+    try {
+      for (const s of searches) {
+        try {
+          await runSearch(s.id);
+        } catch {
+          // continue
+        }
       }
+      qc.invalidateQueries({ queryKey: ["searches"] });
+    } finally {
+      setIsRunningAll(false);
     }
-    qc.invalidateQueries({ queryKey: ["searches"] });
   };
 
   return (
@@ -100,7 +130,7 @@ export function SavedSearches({ selectedId, onSelect }: SavedSearchesProps) {
         </span>
         <button
           onClick={runAll}
-          disabled={searches.length === 0 || runMut.isPending}
+          disabled={searches.length === 0 || isRunningAll || runMut.isPending}
           style={{
             padding: "0.25rem 0.6rem",
             borderRadius: 6,
@@ -117,6 +147,18 @@ export function SavedSearches({ selectedId, onSelect }: SavedSearchesProps) {
         </button>
       </div>
 
+      {/* Error toasts */}
+      {runError && (
+        <div style={{ padding: "0.25rem 1rem", fontSize: "0.75rem", color: COLORS.error }}>
+          {runError}
+        </div>
+      )}
+      {deleteError && (
+        <div style={{ padding: "0.25rem 1rem", fontSize: "0.75rem", color: COLORS.error }}>
+          {deleteError}
+        </div>
+      )}
+
       {/* List */}
       <div style={{ flex: 1, overflowY: "auto", padding: "0.5rem 0" }}>
         {isLoading ? (
@@ -128,20 +170,31 @@ export function SavedSearches({ selectedId, onSelect }: SavedSearchesProps) {
             {t("no_searches")}
           </div>
         ) : (
-          searches.map((s: Search) => (
-            <SearchRow
-              key={s.id}
-              search={s}
-              isSelected={selectedId === s.id}
-              lang={i18n.language}
-              onSelect={() => onSelect(s.id)}
-              onRun={() => runMut.mutate(s.id)}
-              onDelete={() => deleteMut.mutate(s.id)}
-              isRunning={runMut.isPending && runMut.variables === s.id}
-              isDeleting={deleteMut.isPending && deleteMut.variables === s.id}
-              t={t}
-            />
-          ))
+          <>
+            {searches.map((s: Search) => (
+              <SearchRow
+                key={s.id}
+                search={s}
+                isSelected={selectedId === s.id}
+                lang={i18n.language}
+                onSelect={() => onSelect(s.id)}
+                onRun={() => runMut.mutate(s.id)}
+                onDelete={() => deleteMut.mutate(s.id)}
+                isRunning={runMut.isPending && runMut.variables === s.id}
+                isDeleting={deleteMut.isPending && deleteMut.variables === s.id}
+                t={t}
+              />
+            ))}
+
+            {/* Watchlist placeholder */}
+            <hr style={{ margin: "0.5rem 0", border: "none", borderTop: "1px solid #e5e7eb" }} />
+            <div style={{ padding: "0.5rem 1rem 0.25rem", fontSize: "0.75rem", fontWeight: 700, color: COLORS.text }}>
+              {t("watchlist_title")}
+            </div>
+            <div style={{ padding: "0.25rem 1rem 0.5rem", fontSize: "0.75rem", color: COLORS.muted }}>
+              {t("watchlist_coming_soon")}
+            </div>
+          </>
         )}
       </div>
     </aside>

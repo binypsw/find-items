@@ -7,7 +7,7 @@ from typing import Literal
 
 import structlog
 from celery import group
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from worker.celery_app import celery_app
@@ -203,6 +203,11 @@ async def _scrape_source_async(task, search_id: int, source_id: str, run_id: int
                         "last_payload_hash": payload_hash,
                         "consecutive_missing_count": 0,
                         "next_poll_at": _next_poll,
+                        # Keep existing image if new scrape returns none (source temporarily has no image)
+                        "image_urls": text(
+                            "CASE WHEN jsonb_array_length(EXCLUDED.image_urls) > 0"
+                            " THEN EXCLUDED.image_urls ELSE listings.image_urls END"
+                        ),
                     },
                 ).returning(Listing.id, Listing.price_change_count)
 
@@ -250,6 +255,9 @@ async def _scrape_source_async(task, search_id: int, source_id: str, run_id: int
             # Accumulate credits on the Source row and check quota
             from shared.models.source import Source
             source_row = await db.get(Source, source_id)
+            if source_row:
+                source_row.last_success_at = datetime.now(timezone.utc)
+                source_row.health_status = "healthy"
             if source_row and credits_used > 0:
                 prev_used = source_row.credits_used_this_month or 0
                 new_used = prev_used + credits_used
@@ -316,6 +324,46 @@ async def _scrape_source_async(task, search_id: int, source_id: str, run_id: int
         "items_new": items_new,
         "errors": errors,
     }
+
+
+@celery_app.task(name="worker.tasks.scrape_task.update_source_health")
+def update_source_health() -> dict:
+    return asyncio.run(_update_source_health_async())
+
+
+async def _update_source_health_async() -> dict:
+    from datetime import timedelta
+    from sqlalchemy import select
+    from shared.models.source import Source
+    from worker.db import worker_session
+
+    now = datetime.now(timezone.utc)
+    updated = 0
+
+    async with worker_session() as db:
+        result = await db.execute(select(Source).where(Source.enabled == True))
+        sources = result.scalars().all()
+
+        for source in sources:
+            if source.last_success_at is None:
+                status = "down"
+            else:
+                age = now - source.last_success_at
+                if age < timedelta(hours=24):
+                    status = "healthy"
+                elif age < timedelta(hours=72):
+                    status = "degraded"
+                else:
+                    status = "down"
+
+            if source.health_status != status:
+                source.health_status = status
+                updated += 1
+
+        await db.commit()
+
+    log.info("update_source_health.done", updated=updated)
+    return {"status": "ok", "updated": updated}
 
 
 @celery_app.task(name="worker.tasks.scrape_task.update_fx_rates")

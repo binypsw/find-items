@@ -18,6 +18,7 @@ from typing import AsyncIterator
 import structlog
 
 from shared.scraper.base import AbstractScraper, ScraperConfig
+from shared.scraper.relevance import calc_min_match, normalize_title
 from shared.scraper.types import Condition, Currency, RawListing, SellerInfo, StructuredQuery
 
 log = structlog.get_logger()
@@ -102,23 +103,23 @@ class LazadaScraper(AbstractScraper):
         # Lazada's broad OR search returns many unrelated items (e.g. Nokia 3310 when
         # searching "samsung S24 Ultra") because generic tokens like "มือถือ" match anything.
         # Majority threshold requires ceil(n/2) of the product-identifying tokens to match.
-        import math
+        # Bundle exclusion prevents computer-set listings from matching component queries.
         if query.keywords_en:
             relevance_tokens = [t.lower() for t in query.keywords_en if len(t) > 1]
-            min_match = max(1, math.ceil(len(relevance_tokens) / 2))
+            min_match = calc_min_match(relevance_tokens)
             def _is_relevant(title: str) -> bool:
-                tl = title.lower()
+                tl = normalize_title(title)
                 return sum(1 for tok in relevance_tokens if tok in tl) >= min_match
         elif query.keywords:
             relevance_tokens = [t.lower() for t in query.keywords if len(t) > 1]
-            min_match = max(1, math.ceil(len(relevance_tokens) / 2))
+            min_match = calc_min_match(relevance_tokens)
             def _is_relevant(title: str) -> bool:
-                tl = title.lower()
+                tl = normalize_title(title)
                 return sum(1 for tok in relevance_tokens if tok in tl) >= min_match
         else:
             raw_tokens = [t.lower() for t in keyword.split() if len(t) > 1]
             def _is_relevant(title: str) -> bool:
-                tl = title.lower()
+                tl = normalize_title(title)
                 return any(tok in tl for tok in raw_tokens)
 
         skipped = 0

@@ -9,6 +9,7 @@ from shared.config import get_settings
 log = structlog.get_logger()
 
 _CHANNEL_PREFIX = "finditem:runs:"
+_GLOBAL_CHANNEL = "finditem:runs:global"
 
 
 class RedisPubSub:
@@ -29,8 +30,10 @@ class RedisPubSub:
 
     async def publish(self, run_id: int, event: dict[str, Any]) -> None:
         client = await self._get_client()
+        payload = json.dumps(event)
         channel = self._channel(run_id)
-        await client.publish(channel, json.dumps(event))
+        await client.publish(channel, payload)
+        await client.publish(_GLOBAL_CHANNEL, payload)
         log.debug("pubsub.published", run_id=run_id, event_type=event.get("type"))
 
     async def subscribe(self, run_id: int):
@@ -44,6 +47,19 @@ class RedisPubSub:
                     yield json.loads(message["data"])
         finally:
             await pubsub.unsubscribe(self._channel(run_id))
+            await pubsub.aclose()
+
+    async def subscribe_global(self):
+        """Async generator yielding all events across all runs."""
+        client = await self._get_client()
+        pubsub = client.pubsub()
+        await pubsub.subscribe(_GLOBAL_CHANNEL)
+        try:
+            async for message in pubsub.listen():
+                if message["type"] == "message":
+                    yield json.loads(message["data"])
+        finally:
+            await pubsub.unsubscribe(_GLOBAL_CHANNEL)
             await pubsub.aclose()
 
     async def close(self) -> None:

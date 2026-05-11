@@ -161,17 +161,17 @@ export function ProductCard({ listing, cheapestNewPrice }: ProductCardProps) {
             >
               {priceChangePct! < 0 ? "↓" : "↑"}{" "}
               {Math.abs(priceChangePct!).toFixed(1)}%{" "}
-              {priceChangePct! < 0 ? "this week" : "this week"}
+              {t("price_change_period")}
             </span>
           )}
-          {/* % cheaper vs cheapest new — shown on used cards when reference price exists */}
-          {listing.condition === "used" && cheapestNewPrice != null && cheapestNewPrice > 0 && (
+          {/* % cheaper vs cheapest new — shown on used/unknown cards when reference price exists */}
+          {(listing.condition === "used" || listing.condition === "unknown") && cheapestNewPrice != null && cheapestNewPrice > 0 && (
             (() => {
               const pct = ((cheapestNewPrice - listing.current_price_thb) / cheapestNewPrice) * 100;
               if (pct <= 0) return null;
               return (
                 <span
-                  title={`ราคามือ 1 ถูกสุด: ฿${cheapestNewPrice.toLocaleString()}`}
+                  title={t("cheapest_new_tooltip", { price: cheapestNewPrice.toLocaleString() })}
                   style={{
                     fontSize: "0.7rem",
                     fontWeight: 700,
@@ -182,7 +182,7 @@ export function ProductCard({ listing, cheapestNewPrice }: ProductCardProps) {
                     whiteSpace: "nowrap",
                   }}
                 >
-                  ถูกกว่ามือ 1 {pct.toFixed(0)}%
+                  {t("cheaper_than_new", { pct: pct.toFixed(0) })}
                 </span>
               );
             })()
@@ -229,10 +229,16 @@ export function ProductCard({ listing, cheapestNewPrice }: ProductCardProps) {
               marginBottom: "0.2rem",
             }}
           >
-            <span>{t("score_label")}</span>
+            <span
+              title="Score = keyword relevance (50%) + price vs. market avg (30%) + condition match (20%)"
+              style={{ cursor: "help" }}
+            >
+              {t("score_label")}
+            </span>
             <span>{Math.round(scorePercent)}</span>
           </div>
           <div
+            title="Score = keyword relevance (50%) + price vs. market avg (30%) + condition match (20%)"
             style={{
               height: 5,
               background: "#e5e7eb",
@@ -267,7 +273,7 @@ export function ProductCard({ listing, cheapestNewPrice }: ProductCardProps) {
               fontWeight: 500,
             }}
           >
-            {showChart ? "Hide Chart" : "Price Chart"}
+            {showChart ? "📈 Hide" : "📈 Price Chart"}
           </button>
           <a
             href={listing.url}

@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getTopListings, getSearchRuns, runSearch, getSearch } from "../api/client";
+import { useQuery } from "@tanstack/react-query";
+import { getTopListings, getSearchRuns, getSearch } from "../api/client";
 import { ProductCard } from "./ProductCard";
 import type { RankedListing, ScrapeRun } from "../types";
 
@@ -126,7 +126,6 @@ function ResultsTab({
   lang: string;
   t: (key: string) => string;
 }) {
-  const qc = useQueryClient();
   const [sort, setSort] = useState<SortKey>("score");
   const [condFilter, setCondFilter] = useState<ConditionFilter>("all");
 
@@ -149,13 +148,6 @@ function ResultsTab({
     queryFn: () => getTopListings(searchId, 200),
     enabled: searchId > 0,
     refetchInterval: 8000,
-  });
-
-  const runMut = useMutation({
-    mutationFn: () => runSearch(searchId),
-    onSuccess: () => {
-      setTimeout(() => qc.invalidateQueries({ queryKey: ["top-listings", searchId] }), 2000);
-    },
   });
 
   const sorted = useMemo<RankedListing[]>(() => {
@@ -210,15 +202,12 @@ function ResultsTab({
     return [...list].sort((a, b) => b.score - a.score);
   }, [data, sort, condFilter, searchMeta]);
 
-  // Cheapest new-condition listing per source — used as reference when browsing used items.
+  // Cheapest new-condition listing per source — always shown as a price reference.
   // Strict relevance check: item title must match the majority of search keywords so that
   // broad-fallback results (Canon printer when searching camera, mainboard when searching RAM)
-  // are excluded. If no item qualifies, the reference bar is hidden entirely.
+  // are excluded. If no new listings qualify, the reference bar is hidden entirely.
   const newRefPrices = useMemo<Array<{ source_id: string; price: number; url: string }>>(() => {
     if (!data) return [];
-    const usedExists = data.some((l) => l.condition === "used");
-    const showRef = condFilter === "used" || (condFilter === "all" && usedExists);
-    if (!showRef) return [];
 
     // Build relevance tokens from the search's parsed English keywords
     const pq = searchMeta?.parsed_query;
@@ -252,7 +241,7 @@ function ResultsTab({
     return Object.entries(bySource)
       .sort((a, b) => a[1].price - b[1].price)
       .map(([source_id, v]) => ({ source_id, ...v }));
-  }, [data, condFilter, searchMeta]);
+  }, [data, searchMeta]);
 
   if (isLoading) {
     return (
@@ -269,6 +258,23 @@ function ResultsTab({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+      {/* Parsed query chip */}
+      {searchMeta?.parsed_query && (() => {
+        const pq = searchMeta.parsed_query!;
+        const parts: string[] = [];
+        const kws = pq.keywords_en?.length ? pq.keywords_en : pq.keywords;
+        if (kws?.length) parts.push(kws.slice(0, 4).join(" · "));
+        if (pq.condition && pq.condition !== "unknown") parts.push(pq.condition === "used" ? t("condition_used") : t("condition_new"));
+        if (pq.max_price_thb) parts.push(`≤฿${pq.max_price_thb.toLocaleString()}`);
+        if (parts.length === 0) return null;
+        return (
+          <div style={{ fontSize: "0.75rem", color: "#6b7280", background: "#f3f4f6", borderRadius: 6, padding: "0.3rem 0.75rem", display: "inline-flex", alignItems: "center", gap: "0.4rem", alignSelf: "flex-start" }}>
+            <span style={{ opacity: 0.7 }}>🔍</span>
+            <span>{parts.join("  ")}</span>
+          </div>
+        );
+      })()}
+
       {/* Controls row */}
       <div
         style={{
@@ -322,24 +328,6 @@ function ResultsTab({
           <option value="price_asc">{t("sort_price_asc") || "Price: low → high"}</option>
           <option value="price_desc">{t("sort_price_desc") || "Price: high → low"}</option>
         </select>
-
-        {/* Run now */}
-        <button
-          onClick={() => runMut.mutate()}
-          disabled={runMut.isPending}
-          style={{
-            padding: "0.25rem 0.7rem",
-            borderRadius: 6,
-            background: runMut.isPending ? COLORS.muted : COLORS.success,
-            color: "#fff",
-            border: "none",
-            fontSize: "0.75rem",
-            fontWeight: 600,
-            cursor: runMut.isPending ? "not-allowed" : "pointer",
-          }}
-        >
-          {runMut.isPending ? "..." : (t("run_btn") || "Run")}
-        </button>
       </div>
 
       {/* New-price reference bar — shown when browsing used items */}

@@ -25,6 +25,10 @@ celery_app.conf.beat_schedule = {
         "task": "worker.tasks.session_health_task.check_all_sessions",
         "schedule": crontab(minute=0, hour="*/6"),
     },
+    "source-health-update": {
+        "task": "worker.tasks.scrape_task.update_source_health",
+        "schedule": crontab(minute=15, hour="*"),  # every hour at :15
+    },
     "data-retention": {
         "task": "worker.tasks.retention_task.run_retention",
         "schedule": crontab(minute=0, hour=3),
