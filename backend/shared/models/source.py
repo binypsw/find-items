@@ -11,7 +11,7 @@ class Source(Base):
     id: Mapped[str] = mapped_column(String(32), primary_key=True)  # "shopee", "lazada", ...
     name: Mapped[str] = mapped_column(String(128))
     base_url: Mapped[str] = mapped_column(String(256))
-    tier: Mapped[str] = mapped_column(String(16))  # "direct" | "browserless" | "managed_api"
+    tier: Mapped[str] = mapped_column(String(16))  # "direct" | "browser_headless" | "browser_headed" | "managed_api"
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     health_status: Mapped[str] = mapped_column(String(16), default="unknown")
     last_success_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)

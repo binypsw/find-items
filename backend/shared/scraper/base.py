@@ -7,7 +7,7 @@ from shared.scraper.types import RawListing, StructuredQuery
 if TYPE_CHECKING:
     pass
 
-ScraperTier = Literal["direct", "browserless", "managed_api"]
+ScraperTier = Literal["direct", "browser_headless", "browser_headed", "managed_api"]
 
 
 class ScraperConfig(BaseModel):
@@ -76,7 +76,6 @@ class ScraperDependencies:
     def __init__(
         self,
         http_client=None,
-        browserless=None,
         scraping_api=None,
         proxy_mgr=None,
         cookie_store=None,
@@ -84,7 +83,6 @@ class ScraperDependencies:
         logger=None,
     ):
         self.http_client = http_client
-        self.browserless = browserless
         self.scraping_api = scraping_api
         self.proxy_mgr = proxy_mgr
         self.cookie_store = cookie_store

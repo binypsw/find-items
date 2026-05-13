@@ -1,14 +1,10 @@
 """Lazada Thailand scraper.
 
-Uses Browserless (Playwright) to navigate the Lazada catalog page with a real
-Chromium browser, then intercepts the internal AJAX catalog API response.
+Uses direct Playwright (headless Chromium) to navigate the Lazada catalog page,
+then intercepts the internal AJAX catalog API response.
 
 Lazada's bot protection (/punish tmd) requires real JS execution to pass.
-Browserless bypasses this by running a genuine Chrome session.
-
-Credit cost: 0 (uses our own Browserless container, no paid proxy).
 """
-import asyncio
 import re
 import urllib.parse
 from datetime import datetime, timezone
@@ -16,6 +12,7 @@ from decimal import Decimal, InvalidOperation
 from typing import AsyncIterator
 
 import structlog
+from playwright.async_api import async_playwright
 
 from shared.scraper.base import AbstractScraper, ScraperConfig
 from shared.scraper.relevance import calc_min_match, normalize_title
@@ -31,7 +28,7 @@ class LazadaScraper(AbstractScraper):
     source_id = "lazada"
     display_name = "Lazada Thailand"
     base_url = "https://www.lazada.co.th"
-    config = ScraperConfig(tier="browserless", rate_limit_rps=0.3)
+    config = ScraperConfig(tier="browser_headless", rate_limit_rps=0.3)
 
     def __init__(self, deps):
         super().__init__(deps)
@@ -50,44 +47,47 @@ class LazadaScraper(AbstractScraper):
         captured_data: dict | None = None
 
         try:
-            async with self.deps.browserless.context(
-                locale="th-TH",
-                extra_http_headers={
-                    "Accept-Language": "th-TH,th;q=0.9,en-US;q=0.8",
-                },
-                viewport={"width": 1280, "height": 800},
-            ) as ctx:
-                page = await ctx.new_page()
-
-                # Intercept the AJAX catalog response
-                async def _on_response(response):
-                    nonlocal captured_data
-                    if (
-                        "catalog" in response.url
-                        and "ajax=true" in response.url
-                        and captured_data is None
-                    ):
-                        try:
-                            captured_data = await response.json()
-                            log.debug("lazada.api_intercepted", url=response.url[:120])
-                        except Exception as exc:
-                            log.debug("lazada.intercept_json_error", error=str(exc))
-
-                page.on("response", _on_response)
-
+            async with async_playwright() as pw:
+                browser = await pw.chromium.launch(headless=True)
                 try:
-                    await page.goto(
-                        page_url,
-                        wait_until="networkidle",
-                        timeout=35_000,
+                    ctx = await browser.new_context(
+                        locale="th-TH",
+                        extra_http_headers={"Accept-Language": "th-TH,th;q=0.9,en-US;q=0.8"},
+                        viewport={"width": 1280, "height": 800},
                     )
-                except Exception as exc:
-                    log.debug("lazada.goto_timeout", error=str(exc))
+                    page = await ctx.new_page()
 
-                await page.close()
+                    # Intercept the AJAX catalog response
+                    async def _on_response(response):
+                        nonlocal captured_data
+                        if (
+                            "catalog" in response.url
+                            and "ajax=true" in response.url
+                            and captured_data is None
+                        ):
+                            try:
+                                captured_data = await response.json()
+                                log.debug("lazada.api_intercepted", url=response.url[:120])
+                            except Exception as exc:
+                                log.debug("lazada.intercept_json_error", error=str(exc))
+
+                    page.on("response", _on_response)
+
+                    try:
+                        await page.goto(
+                            page_url,
+                            wait_until="networkidle",
+                            timeout=35_000,
+                        )
+                    except Exception as exc:
+                        log.debug("lazada.goto_timeout", error=str(exc))
+
+                    await ctx.close()
+                finally:
+                    await browser.close()
 
         except Exception as exc:
-            log.warning("lazada.browserless_error", error=str(exc), keyword=keyword)
+            log.warning("lazada.browser_error", error=str(exc), keyword=keyword)
             return
 
         if not captured_data:

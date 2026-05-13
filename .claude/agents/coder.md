@@ -18,7 +18,7 @@ memory: project
 |---|---|
 | Backend API | FastAPI + SQLAlchemy async (Python 3.11) |
 | Worker | Celery + Redis (broker DB1, cache DB0) |
-| Scrapers | curl_cffi + Playwright via Browserless CDP |
+| Scrapers | curl_cffi + Playwright (Headless / Headed) |
 | LLM parser | Gemini 2.0 Flash → Typhoon v2.5 → Regex |
 | DB | PostgreSQL 16 + pgvector |
 | Frontend | React + TypeScript + Vite + nginx (port 3001) |
@@ -36,8 +36,8 @@ backend/
       types.py             # StructuredQuery, RawListing
       manager.py           # get_scraper() factory, injects BrowserlessClient
       plugins/             # drop *.py ที่นี่ — auto-discovered
-        lazada.py          # Browserless AJAX intercept
-        kaidee.py          # Browserless Next.js SSR
+        lazada.py          # Playwright headless AJAX intercept (pending migration from Browserless)
+        kaidee.py          # Playwright headless Next.js SSR (pending migration from Browserless)
         shopee.py          # blocked — ต้องการ cookies
         jib.py             # curl_cffi + BeautifulSoup
         bnn.py             # curl_cffi + progressive fallback
@@ -45,7 +45,6 @@ backend/
     services/
       query_parser.py      # 3-tier LLM + Redis 24h cache
     core/
-      browserless_client.py
       embeddings.py
   worker/tasks/scrape_task.py
   api/routes/dashboard.py
@@ -60,6 +59,12 @@ frontend/src/
 nginx.conf
 docker-compose.yml
 ```
+
+---
+
+## กฎเหล็ก
+- **No Paid APIs**: ห้ามใช้/แนะนำ Scrapfly, ZenRows หรือบริการ scraping เสียเงินใดๆ — private home server project
+- **Anti-bot**: ใช้ `browser_headed` (Playwright เปิดหน้าจอ) แทน — ให้ user แก้ CAPTCHA / login เอง
 
 ---
 
@@ -102,7 +107,7 @@ class MyScraper(AbstractScraper):
     async def search(self, query: StructuredQuery, limit: int = 50) -> AsyncIterator[RawListing]:
         keyword = self.normalize_keywords(query)  # raw_query first, fallback keywords_en/th
         # direct: ใช้ self.deps.http (curl_cffi)
-        # browser: ใช้ async with self.deps.browserless.context() as ctx:
+        # browser_headless / browser_headed: ใช้ async with async_playwright() as p: browser = await p.chromium.launch(headless=False)
         async for item in self._fetch_pages(keyword, limit):
             if self._is_relevant(item["title"], query):
                 yield self._normalize(item)
@@ -110,6 +115,11 @@ class MyScraper(AbstractScraper):
     async def get_detail(self, url: str) -> RawListing | None:
         return None  # implement ถ้า search ไม่มีราคา
 ```
+
+**Tiers:**
+- `direct` — curl_cffi สำหรับเว็บทั่วไป (เร็ว, เบา)
+- `browser_headless` — Playwright ซ่อนจอ สำหรับเว็บต้องการ JS rendering
+- `browser_headed` — Playwright เปิดหน้าจอ สำหรับ anti-bot โหดๆ (Akamai, Cloudflare) ให้ user แก้เอง
 
 **BNN/Priceza pattern** (English keywords preferred):
 ```python
@@ -161,7 +171,7 @@ while tokens:
 
 | Gotcha | รายละเอียด |
 |---|---|
-| Port | ใช้ `localhost:3001/api/...` เท่านั้น — port 8000 ไม่ expose |
+| Port | API: `localhost:8000` (direct) หรือ `localhost:3001/api/...` (nginx proxy) — ทั้งคู่ใช้ได้ |
 | Worker hot-reload | แก้ `plugins/*.py` → `docker compose restart worker` (ไม่ต้อง rebuild) |
 | Worker rebuild | แก้ `requirements.txt` → `docker compose build worker && docker compose up -d worker` |
 | Frontend rebuild | แก้ `frontend/src/` → `docker compose build frontend && docker compose up -d frontend` |
@@ -205,7 +215,7 @@ while tokens:
 
 ```bash
 # ทดสอบ scraper run
-curl -X POST http://localhost:3001/api/searches/4/run -H "Content-Type: application/json" -d '{}'
+curl -X POST http://localhost:8000/api/searches/4/run -H "Content-Type: application/json" -d '{}'
 
 # ดู worker logs
 docker compose logs -f worker | grep -E "(error|items_found|FAILED|source_id)"
@@ -215,7 +225,7 @@ docker exec find-item-postgres-1 psql -U finditem -d finditem -c \
   "SELECT source_id, status, items_found, started_at FROM scrape_runs ORDER BY id DESC LIMIT 10;"
 
 # ทดสอบ query parser
-curl -X POST http://localhost:3001/api/searches/parse \
+curl -X POST http://localhost:8000/api/searches/parse \
   -H "Content-Type: application/json" -d '{"raw_query":"used DDR4 16gb"}'
 
 # เช็ก Redis cache

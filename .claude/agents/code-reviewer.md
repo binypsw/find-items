@@ -32,6 +32,7 @@ memory: project
 - Infinite loop หรือ retry loop ที่ไม่มี exit condition
 
 ### 3. Security (OWASP Top 10)
+- **No Paid APIs**: ไม่มีการใช้ Scrapfly, ZenRows หรือบริการ scraping เสียเงินใดๆ — พบ = REWORK ทันที
 - **SQL Injection**: ใช้ parameterized queries / SQLAlchemy ORM — ห้าม f-string SQL
 - **Secrets exposure**: ไม่มี API keys, passwords, tokens hardcoded ในโค้ด
 - **Command Injection**: ถ้ารับ input จาก user แล้วใช้ใน shell command
@@ -49,6 +50,7 @@ memory: project
 - [ ] normalize_keywords: BNN/Priceza ต้อง prefer `keywords_en` ไม่ใช่ raw_query
 - [ ] ไม่ใช้ `.pz-pdb-price.pd-group` สำหรับ Priceza (ใช้ `.pz-pdb-price` เท่านั้น)
 - [ ] condition field: ถ้า site ไม่มีข้อมูล ต้อง store เป็น `condition="unknown"`
+- [ ] tier ถูกต้อง: `direct` (curl_cffi), `browser_headless` (Playwright ซ่อนจอ), `browser_headed` (Playwright เปิดจอ สำหรับ anti-bot โหดๆ) — ห้ามใช้ Browserless
 
 **FastAPI Route:**
 - [ ] `async def` ทุก handler

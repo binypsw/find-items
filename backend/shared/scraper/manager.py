@@ -2,7 +2,6 @@ import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.config import get_settings
-from shared.core.browserless_client import BrowserlessClient
 from shared.core.proxy_manager import ProxyManager
 from shared.core.pubsub import RedisPubSub
 from shared.scraper.base import AbstractScraper, ScraperDependencies
@@ -12,7 +11,6 @@ log = structlog.get_logger()
 settings = get_settings()
 
 _proxy_manager = ProxyManager()
-_browserless = BrowserlessClient()
 _pubsub = RedisPubSub()
 
 
@@ -32,7 +30,6 @@ def build_deps(db: AsyncSession, source_id: str) -> ScraperDependencies:
 
     return ScraperDependencies(
         http_client=None,  # curl_cffi session created per-request inside plugins
-        browserless=_browserless,
         scraping_api=scraping_api,
         proxy_mgr=_proxy_manager,
         cookie_store=cookie_store,

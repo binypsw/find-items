@@ -38,7 +38,7 @@ class ShopeeScraper(AbstractScraper):
     display_name = "Shopee Thailand"
     base_url = "https://shopee.co.th"
     config = ScraperConfig(
-        tier="browserless",
+        tier="browser_headless",
         rate_limit_rps=0.3,
         api_provider=None,
     )
@@ -163,7 +163,7 @@ class ShopeeScraper(AbstractScraper):
                     "shopee.bot_blocked",
                     keyword=keyword,
                     has_cookies=bool(stored_cookies),
-                    hint="Akamai Bot Manager — redirects to verify/traffic/error. Needs Scrapfly or anti-detect browser.",
+                    hint="Akamai blocked. Run: python tools/capture_shopee_session.py — solve challenge in browser, then retry.",
                 )
             else:
                 log.warning("shopee.api_error", error_code=error_code, keyword=keyword)

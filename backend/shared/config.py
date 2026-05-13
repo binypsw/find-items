@@ -17,10 +17,6 @@ class Settings(BaseSettings):
     celery_broker_url: str = "redis://redis:6379/1"
     celery_result_backend: str = "redis://redis:6379/2"
 
-    # Browserless
-    browserless_url: str = "ws://browserless:3000"
-    browserless_token: str = "changeme"
-
     # LLM — Tier 1: Gemini (primary, free 1500/day)
     google_api_key: Optional[str] = None
     gemini_model: str = "gemini-2.0-flash"

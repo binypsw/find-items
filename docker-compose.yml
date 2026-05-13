@@ -28,15 +28,6 @@ services:
       timeout: 5s
       retries: 5
 
-  browserless:
-    image: ghcr.io/browserless/chromium:latest
-    environment:
-      MAX_CONCURRENT_SESSIONS: 5
-      CONNECTION_TIMEOUT: 60000
-      TOKEN: ${BROWSERLESS_TOKEN}
-    ports:
-      - "3000:3000"
-
   api:
     build:
       context: ./backend
@@ -63,8 +54,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      browserless:
-        condition: service_started
     volumes:
       - ./backend:/app:cached
       - hf_cache:/root/.cache/huggingface

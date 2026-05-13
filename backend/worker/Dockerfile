@@ -46,7 +46,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Pre-download Camoufox patched Firefox binary (cached in Docker layer)
 RUN python -m camoufox fetch
 
-# Playwright browser drivers are NOT needed — worker connects to browserless service via CDP
+# Install Playwright Chromium for browser_headless scrapers (playwright package is in requirements.txt)
+RUN python -m playwright install chromium --with-deps
 
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
