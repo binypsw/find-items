@@ -160,7 +160,7 @@ _Tested with: DDR4 16GB + S24 Ultra มือสอง (11 clean results, no fak
 - [ ] **[Scraper] IT City** — เพิ่ม source + plugin; tier: direct
 - [ ] **[Scraper] Central Online** — เพิ่ม source + plugin; tier: direct
 - [ ] **[Scraper] OLX Thailand** — used items; tier: direct
-- [ ] **[Scraper] AliExpress** — แทน stub; tier: direct + rate limiting
+- [x] **[Scraper] AliExpress** — `browser_headless` Playwright; new items only; 0003 migration updates tier
 
 ---
 
