@@ -151,32 +151,45 @@ class FacebookMarketplaceScraper(AbstractScraper):
 def _extract_edges(html: str) -> list[dict]:
     """Find the Relay SSR JSON blob in the page HTML and extract listing edges.
 
-    Facebook embeds one or more <script type="application/json"> tags; we find
-    the one containing the Relay marker and then navigate the nested bbox
-    structure to reach marketplace_search.feed_units.edges.
+    Facebook embeds listing data in two possible locations:
+    1. Inline <script> tags (no type attribute) — newer format observed 2026-05
+    2. <script type="application/json"> tags — older format
+
+    Both are tried; the first blob containing the Relay marker with parseable
+    JSON is used.  The nested __bbox structure path varies by Facebook
+    A/B experiment, so _find_edges() tries multiple known paths.
     """
-    # Extract all <script type="application/json"> contents
-    script_contents = re.findall(
+    # Collect all candidate script contents:
+    # First try inline scripts (newer format — no type attribute, not src=)
+    # Then fall back to application/json scripts (older format)
+    inline_scripts = re.findall(
+        r'<script(?!\s+src)(?!\s+type)[^>]*>(.*?)</script>',
+        html,
+        re.DOTALL,
+    )
+    json_scripts = re.findall(
         r'<script\s+type="application/json"[^>]*>(.*?)</script>',
         html,
         re.DOTALL,
     )
+    all_scripts = inline_scripts + json_scripts
 
-    relay_blob: dict | None = None
-    for content in script_contents:
-        if _RELAY_MARKER in content:
-            try:
-                relay_blob = json.loads(content)
-                break
-            except json.JSONDecodeError as exc:
-                log.debug("facebook.json_decode_error", error=str(exc))
-                continue
+    for content in all_scripts:
+        if _RELAY_MARKER not in content:
+            continue
+        if "marketplace_listing_title" not in content and "feed_units" not in content:
+            continue
+        try:
+            relay_blob = json.loads(content)
+        except json.JSONDecodeError as exc:
+            log.debug("facebook.json_decode_error", error=str(exc))
+            continue
+        edges = _find_edges(relay_blob)
+        if edges:
+            return edges
 
-    if relay_blob is None:
-        log.debug("facebook.relay_blob_not_found")
-        return []
-
-    return _find_edges(relay_blob)
+    log.debug("facebook.relay_blob_not_found")
+    return []
 
 
 def _find_edges(data: dict) -> list[dict]:
@@ -188,9 +201,16 @@ def _find_edges(data: dict) -> list[dict]:
     # Each path is a list of alternating dict-keys and list-indices.
     # The final element must resolve to the edges list.
     paths_to_try = [
-        # Primary path observed in research
+        # 2026-05 format: ScheduledServerJS → __bbox → RelayPrefetchedStreamCache → __bbox → result.data
+        # path: require[0][3][0].__bbox.require[0][3][1].__bbox.result.data.marketplace_search.feed_units.edges
         [
             "require", 0, 3, 0, "__bbox",
+            "require", 0, 3, 1, "__bbox",
+            "result", "data", "marketplace_search", "feed_units", "edges",
+        ],
+        # Same but args[1] instead of args[0] at outer level
+        [
+            "require", 0, 3, 1, "__bbox",
             "require", 0, 3, 1, "__bbox",
             "result", "data", "marketplace_search", "feed_units", "edges",
         ],

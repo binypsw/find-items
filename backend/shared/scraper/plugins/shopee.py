@@ -1,14 +1,28 @@
 """Shopee Thailand scraper.
 
-Uses Camoufox (anti-detect Firefox) to navigate the Shopee search page,
-then intercepts the internal JSON search API response.
+Uses Playwright with a **persistent browser context** (Chromium, headed) to navigate
+the Shopee search page, then captures the internal JSON search API response via a
+response event listener.
 
-Anti-bot strategy:
-- Camoufox patches Firefox at the binary level to pass Akamai Bot Manager
-  fingerprint checks (JA3/JA4 TLS, navigator properties, canvas, WebGL, etc.)
-- Route interception captures the search result JSON.
+Anti-bot strategy
+-----------------
+Akamai Bot Manager (error 90309999) blocks headless/automated browsers.
+Running headed (headless=False) with a persistent context lets the user manually
+solve the Akamai challenge once — cookies and browser state are saved to disk so
+subsequent runs reuse the valid session without prompting again.
 
-Credit cost: 0 (local Firefox via Camoufox, no paid service).
+First-run flow
+--------------
+1. Chromium opens visibly (headless=False).
+2. User solves the Akamai / CAPTCHA challenge in the browser window.
+3. Session state is written automatically to ``user_data_dir``.
+4. Future runs load the saved context; the challenge is typically not repeated.
+
+Persistent context path (inside Docker volume, configurable via env var):
+    SHOPEE_CONTEXT_PATH=/data/browser-contexts/shopee  (default)
+
+DB tier update (run once after deploy):
+    UPDATE sources SET tier='browser_headed' WHERE id='shopee';
 """
 import asyncio
 import json as jsonlib
@@ -18,7 +32,7 @@ from decimal import Decimal, InvalidOperation
 from typing import AsyncIterator
 
 import structlog
-from camoufox.async_api import AsyncCamoufox
+from playwright.async_api import async_playwright
 
 from shared.config import get_settings
 from shared.scraper.base import AbstractScraper, ScraperConfig
@@ -38,7 +52,7 @@ class ShopeeScraper(AbstractScraper):
     display_name = "Shopee Thailand"
     base_url = "https://shopee.co.th"
     config = ScraperConfig(
-        tier="browser_headless",
+        tier="browser_headed",
         rate_limit_rps=0.3,
         api_provider=None,
     )
@@ -56,19 +70,13 @@ class ShopeeScraper(AbstractScraper):
         encoded_kw = urllib.parse.quote(keyword)
         search_url = _SEARCH_PAGE.format(keyword=encoded_kw)
 
-        # Load stored cookies (SPC_F, SPC_EC, SPC_U, etc.) if available.
-        # User must POST to /api/sessions with source_id="shopee" to seed them.
-        stored_cookies: list[dict] | None = None
-        if self.deps.cookie_store:
-            try:
-                stored_cookies = await self.deps.cookie_store.get_active("shopee")
-            except Exception as exc:
-                log.debug("shopee.cookie_load_error", error=str(exc))
+        settings = get_settings()
+        context_path = settings.shopee_context_path
 
-        # Residential proxy support (BrightData format: http://user:pass@host:port).
-        # If SHOPEE_PROXY_URL is not set, proxy_kwargs stays None and is omitted.
+        # Proxy support (BrightData format: http://user:pass@host:port).
+        # Omitted when SHOPEE_PROXY_URL is not set.
         proxy_kwargs: dict | None = None
-        proxy_url = get_settings().shopee_proxy_url
+        proxy_url = settings.shopee_proxy_url
         if proxy_url:
             parsed = urllib.parse.urlparse(proxy_url)
             proxy_kwargs = {
@@ -80,80 +88,86 @@ class ShopeeScraper(AbstractScraper):
 
         captured_data: dict | None = None
 
+        # launch_persistent_context kwargs — proxy added only when configured
         launch_kwargs: dict = dict(
-            headless=True,
-            os="windows",
-            locale=["th-TH", "en-US"],
+            headless=False,
+            locale="th-TH",
+            viewport={"width": 1280, "height": 900},
+            args=[
+                "--no-sandbox",
+                "--disable-blink-features=AutomationControlled",
+            ],
         )
         if proxy_kwargs:
             launch_kwargs["proxy"] = proxy_kwargs
 
+        log.info(
+            "shopee.browser_start",
+            keyword=keyword,
+            context_path=context_path,
+        )
+
         try:
-            async with AsyncCamoufox(**launch_kwargs) as browser:
-                # Use new_page() so fingerprint patches from Camoufox apply to
-                # the auto-created default context. new_context() would bypass them.
-                page = await browser.new_page()
-                ctx = page.context
-
-                async def _intercept_api(route):
-                    nonlocal captured_data
-                    try:
-                        response = await route.fetch()
-                        body_bytes = await response.body()
-                        if body_bytes:
-                            captured_data = jsonlib.loads(body_bytes)
-                            items_count = len(
-                                (captured_data.get("response") or {}).get("items") or []
-                            )
-                            log.debug(
-                                "shopee.api_captured",
-                                items=items_count,
-                                error_code=captured_data.get("error"),
-                            )
-                        await route.fulfill(response=response)
-                    except Exception as exc:
-                        log.debug("shopee.route_error", error=str(exc))
-                        try:
-                            await route.continue_()
-                        except Exception:
-                            pass
-
-                if stored_cookies:
-                    try:
-                        await ctx.add_cookies(stored_cookies)
-                        log.info("shopee.cookies_injected", count=len(stored_cookies), keyword=keyword)
-                    except Exception as exc:
-                        log.warning("shopee.cookie_inject_error", error=str(exc))
-                        stored_cookies = None
-
-                warmup_sleep = 2 if stored_cookies else 4
-                try:
-                    await page.goto(
-                        "https://shopee.co.th/",
-                        wait_until="commit",
-                        timeout=30_000,
-                    )
-                    await asyncio.sleep(warmup_sleep)
-                except Exception as exc:
-                    log.debug("shopee.warmup_timeout", error=str(exc))
-
-                await page.route(
-                    lambda url: _SEARCH_API_PATTERN in url,
-                    _intercept_api,
+            async with async_playwright() as pw:
+                # launch_persistent_context saves cookies/storage to disk automatically.
+                # First run: user solves Akamai challenge; subsequent runs reuse session.
+                context = await pw.chromium.launch_persistent_context(
+                    user_data_dir=context_path,
+                    **launch_kwargs,
                 )
-
                 try:
-                    await page.goto(
-                        search_url,
-                        wait_until="commit",
-                        timeout=30_000,
-                    )
-                    await asyncio.sleep(8)
-                except Exception as exc:
-                    log.debug("shopee.goto_timeout", error=str(exc))
+                    page = await context.new_page()
+
+                    # Response listener captures the search API JSON.
+                    async def _on_response(response) -> None:
+                        nonlocal captured_data
+                        if _SEARCH_API_PATTERN not in response.url:
+                            return
+                        try:
+                            body_bytes = await response.body()
+                            if body_bytes:
+                                captured_data = jsonlib.loads(body_bytes)
+                                items_count = len(
+                                    (captured_data.get("response") or {}).get("items") or []
+                                )
+                                log.debug(
+                                    "shopee.api_captured",
+                                    items=items_count,
+                                    error_code=captured_data.get("error"),
+                                )
+                        except Exception as exc:
+                            log.debug("shopee.response_read_error", error=str(exc))
+
+                    page.on("response", _on_response)
+
+                    # Warmup: visit homepage first so session cookies are active before search.
+                    try:
+                        await page.goto(
+                            "https://shopee.co.th/",
+                            wait_until="commit",
+                            timeout=30_000,
+                        )
+                        await asyncio.sleep(3)
+                    except Exception as exc:
+                        log.debug("shopee.warmup_timeout", error=str(exc))
+
+                    # Navigate to search results page.
+                    try:
+                        await page.goto(
+                            search_url,
+                            wait_until="commit",
+                            timeout=30_000,
+                        )
+                        # Wait for the search API XHR to fire and listener to capture it.
+                        await asyncio.sleep(8)
+                    except Exception as exc:
+                        log.debug("shopee.goto_timeout", error=str(exc))
+
+                finally:
+                    await context.close()
 
         except Exception as exc:
-            log.warning("shopee.camoufox_error", error=str(exc), keyword=keyword)
+            log.warning("shopee.browser_error", error=str(exc), keyword=keyword)
             return
 
         if not captured_data or captured_data.get("error"):
@@ -162,8 +176,11 @@ class ShopeeScraper(AbstractScraper):
                 log.warning(
                     "shopee.bot_blocked",
                     keyword=keyword,
-                    has_cookies=bool(stored_cookies),
-                    hint="Akamai blocked. Run: python tools/capture_shopee_session.py — solve challenge in browser, then retry.",
+                    hint=(
+                        "Akamai blocked — open the browser window that just appeared, "
+                        "solve the challenge manually, then retry. "
+                        "Session will be saved to the persistent context path for future runs."
+                    ),
                 )
             else:
                 log.warning("shopee.api_error", error_code=error_code, keyword=keyword)
