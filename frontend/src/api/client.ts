@@ -2,7 +2,10 @@ import axios from "axios";
 import type {
   AccountSession,
   Listing,
+  NotificationConfig,
+  PriceAlert,
   PricePoint,
+  PriceStats,
   RankedListing,
   Search,
   Source,
@@ -31,6 +34,8 @@ export const getTopListings = (searchId: number, limit = 10) =>
 export const getListing = (id: number) => api.get<Listing>(`/listings/${id}`).then((r) => r.data);
 export const getPriceHistory = (id: number, range = "30d") =>
   api.get<PricePoint[]>(`/listings/${id}/price-history`, { params: { range } }).then((r) => r.data);
+export const getPriceStats = (id: number) =>
+  api.get<PriceStats>(`/listings/${id}/price-stats`).then((r) => r.data);
 
 // Sources
 export const getSources = () => api.get<Source[]>("/sources").then((r) => r.data);
@@ -49,6 +54,20 @@ export const deleteSession = (id: number) => api.delete(`/sessions/${id}`);
 export const getRun = (id: number) => api.get<ScrapeRun>(`/runs/${id}`).then((r) => r.data);
 export const getSearchRuns = (searchId: number, limit = 10) =>
   api.get<ScrapeRun[]>(`/searches/${searchId}/runs`, { params: { limit } }).then((r) => r.data);
+
+// Alerts
+export const getAlerts = () => api.get<PriceAlert[]>("/alerts").then((r) => r.data);
+export const createAlert = (body: { listing_id: number; target_price: number; comparison: string; notify_channels: string[] }) =>
+  api.post<PriceAlert>("/alerts", body).then((r) => r.data);
+export const updateAlert = (id: number, body: Partial<{ target_price: number; is_active: boolean; notify_channels: string[] }>) =>
+  api.patch<PriceAlert>(`/alerts/${id}`, body).then((r) => r.data);
+export const deleteAlert = (id: number): Promise<void> =>
+  api.delete(`/alerts/${id}`).then(() => undefined);
+
+// Notification config
+export const getNotificationConfig = () => api.get<NotificationConfig>("/config/notifications").then((r) => r.data);
+export const putNotificationConfig = (body: NotificationConfig) =>
+  api.put<NotificationConfig>("/config/notifications", body).then((r) => r.data);
 
 // WebSocket helper
 export function createRunWebSocket(token?: string): WebSocket {

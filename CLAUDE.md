@@ -8,6 +8,9 @@ Thai e-commerce price comparison tool. Monitors prices across Lazada, Kaidee, Sh
 - เมื่อต้องแก้โค้ด → เรียก `coder` agent
 - เมื่อต้องสำรวจเว็บใหม่ → เรียก `scraper-research` agent
 - เมื่อ coder เสร็จ → เรียก `code-reviewer` agent เสมอ
+- เมื่อ code-reviewer APPROVED → เรียก `qa` agent เสมอ (ทั้ง FE และ BE)
+- **qa agent** เป็น gate สุดท้าย: รัน test scripts + visual check (FE) + mark STATUS.md done
+- **qa agent รับผิดชอบ test scripts** ใน `tests/` — เขียน/อัพเดต tests เมื่อ feature เปลี่ยน
 
 ## Stack
 | Layer | Tech |

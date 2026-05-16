@@ -2,8 +2,8 @@
 
 # Find Item — Current Status
 
-_Last updated: 2026-05-13 — Lazada migrated to direct Playwright headless (browser_headless tier); removed Browserless CDP dependency from Lazada_
-_Tested with: DDR4 16GB + S24 Ultra มือสอง (11 clean results, no fakes) + แก้วน้ำ richell มือสอง (37 results, all legitimate cups)_
+_Last updated: 2026-05-15 — Shopee scraper rewritten to browser_headed + Playwright persistent context; QA confirmed Docker worker has no $DISPLAY/Xvfb → headed browser cannot launch; items_found=0 (expected); docker-compose fix required before Shopee can produce results_
+_Tested with: DDR4 16GB (Shopee: 0 items — display blocker confirmed); smoke 10/10 passed_
 
 ## Infrastructure
 
@@ -25,10 +25,10 @@ _Tested with: DDR4 16GB + S24 Ultra มือสอง (11 clean results, no fak
 | Priceza | ✅ Working | 23 | curl_cffi aggregator, fast (~2s) |
 | Lazada | ✅ Working | 29 | Direct Playwright headless (`browser_headless`) + AJAX intercept |
 | Kaidee | ✅ Working | 0 | Browserless Next.js SSR — pending migration; 0 = real data gap not bug |
-| Shopee | ⚠️ Needs cookies | 0 | รัน `python tools/capture_shopee_session.py` บน Windows host เพื่อ capture session cookies ก่อน |
+| Shopee | ❌ Needs display setup | 0 | `browser_headed` + Playwright persistent context — Docker worker ไม่มี `$DISPLAY` และไม่มี Xvfb → headed Chromium ล้มเหลว (`Missing X server or $DISPLAY`); scraper code OK แต่ต้อง fix docker-compose ก่อน (เพิ่ม Xvfb หรือ run บน Windows host) |
 | Advice | ⏸ Skipped | 0 | Cloudflare block; Priceza ครอบคลุมแล้ว; disabled in DB |
 | AliExpress | ❌ Disabled | 0 | Stub only; disabled in DB |
-| Facebook | ⏸ Disabled in DB | — | Plugin ready (`browser_headless`, SSR no-login, 24 items) — enable ด้วย SQL ข้างบน |
+| Facebook | ✅ Working | 24 | `browser_headless` Playwright SSR inline script parser; fixed 2026-05-15 (inline script format, Chromium install) |
 
 ## Features
 
@@ -46,8 +46,8 @@ _Tested with: DDR4 16GB + S24 Ultra มือสอง (11 clean results, no fak
 | Ranking (condition preference, percentile price norm) | ✅ Working | Dashboard returns ordered results |
 | Price history charts | ❌ Not implemented | |
 | Discord notifications | ❌ Not implemented | |
-| Shopee scraper | ❌ Akamai blocked | Strategy: `browser_headed` ให้ user แก้ challenge เอง (no paid APIs) |
-| Facebook scraper | ❌ Blocked | Strategy: `browser_headed` + persistent context สำหรับ session cookies |
+| Shopee scraper | ❌ Needs display setup | `browser_headed` + Playwright persistent context — code approved แต่ Docker worker ไม่มี Xvfb/$DISPLAY; headed Chromium launch ล้มเหลวทันที; ต้อง add Xvfb ใน worker Dockerfile + DISPLAY env ใน docker-compose.yml หรือ run บน Windows host |
+| Facebook scraper | ✅ Working | Playwright headless SSR inline script; 24 items/search; enabled in DB |
 
 ## Data State
 
@@ -107,20 +107,20 @@ _Tested with: DDR4 16GB + S24 Ultra มือสอง (11 clean results, no fak
 
 ### F1: Smart Price Tracking & Drop Alerts
 
-- [ ] **[BE] `price_alerts` model + migration** — fields: `listing_id`, `target_price`, `comparison` (lte/pct_drop), `notify_channels`, `is_active`, `triggered_at`
-- [ ] **[BE] Alert evaluation ใน `poll_task.py`**
-- [ ] **[BE] API: `/api/alerts` CRUD**
-- [ ] **[FE] "Set Alert" button บน ProductCard**
-- [ ] **[FE] Alerts management tab/panel**
-- [ ] **[FE] Notification settings** — Discord webhook URL, email
+- [x] **[BE] `price_alerts` model + migration** — fields: `listing_id`, `target_price`, `comparison` (lte/pct_drop), `notify_channels`, `is_active`, `triggered_at`
+- [x] **[BE] Alert evaluation ใน `poll_task.py`**
+- [x] **[BE] API: `/api/alerts` CRUD**
+- [x] **[FE] "Set Alert" button บน ProductCard**
+- [x] **[FE] Alerts management tab/panel**
+- [x] **[FE] Notification settings** — Discord webhook URL, email
 
 ### F2: Historical Price Transparency (กราฟจับโกหกโปรโมชัน)
 
-- [ ] **[BE] Price stats endpoint** — `GET /api/listings/{id}/price-stats`
-- [ ] **[BE] Flash sale detection logic**
-- [ ] **[FE] Full price history chart modal**
-- [ ] **[FE] "Fake sale" warning badge**
-- [ ] **[FE] Price trend indicator บน card**
+- [x] **[BE] Price stats endpoint** — `GET /api/listings/{id}/price-stats`
+- [x] **[BE] Flash sale detection logic** — `is_likely_fake_sale` when max>avg*1.20 AND current<avg*0.90
+- [x] **[FE] Full price history chart modal** — range selector 7d/30d/90d/all, stats bar, fake sale warning
+- [x] **[FE] "Fake sale" warning badge** — amber box inside modal showing `fake_sale_reason`
+- [x] **[FE] Price trend indicator บน card** — `price_change_7d_pct` ↑/↓ already existed; trend_7d in modal
 
 ### F3: Review Aggregation & Seller Warning
 
@@ -153,7 +153,7 @@ _Tested with: DDR4 16GB + S24 Ultra มือสอง (11 clean results, no fak
 | **AliExpress** | 🟠 Med | `direct` curl_cffi + API | Rate limiting |
 | **OLX Thailand** (olx.co.th) | 🟡 Low | `direct` curl_cffi + REST API | ไม่มี |
 | **Temu** (temu.com) | 🟡 Low | `direct` curl_cffi + JSON API | Geo-block |
-| **Shopee** | ⏳ Planned | `browser_headed` — user แก้ Akamai challenge เอง | Akamai |
+| **Shopee** | ⚠️ Display required | `browser_headed` + Playwright persistent context — code OK แต่ Docker worker ไม่มี Xvfb; ต้อง add Xvfb ใน Dockerfile + DISPLAY=:99 ใน docker-compose.yml | No Xvfb in worker container |
 | **Facebook Marketplace** | ⏳ Planned | `browser_headed` + persistent context — user login ครั้งเดียว | Auth |
 
 - [ ] **[Scraper] PowerBuy** — เพิ่ม source + plugin; tier: direct

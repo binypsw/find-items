@@ -16,6 +16,8 @@ from api.routes.dashboard import router as dashboard_router
 from api.routes.sources import router as sources_router
 from api.routes.sessions import router as sessions_router
 from api.routes.runs import router as runs_router
+from api.routes.alerts import router as alerts_router
+from api.routes.config import router as config_router
 
 settings = get_settings()
 log = structlog.get_logger()
@@ -42,6 +44,8 @@ app.include_router(dashboard_router)
 app.include_router(sources_router)
 app.include_router(sessions_router)
 app.include_router(runs_router)
+app.include_router(alerts_router)
+app.include_router(config_router)
 
 app.add_middleware(
     CORSMiddleware,

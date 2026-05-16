@@ -6,6 +6,8 @@ import { ResultsDashboard } from "./components/ResultsDashboard";
 import { SourcesPanel } from "./components/SourcesPanel";
 import { LiveFeed } from "./components/LiveFeed";
 import { SessionsPanel } from "./components/SessionsPanel";
+import { AlertsPanel } from "./components/AlertsPanel";
+import { NotificationSettings } from "./components/NotificationSettings";
 
 const COLORS = {
   primary: "#2563eb",
@@ -16,7 +18,7 @@ const COLORS = {
   card: "#fff",
 };
 
-type MainTab = "results" | "sources" | "live" | "sessions";
+type MainTab = "results" | "sources" | "live" | "sessions" | "alerts";
 
 export default function App() {
   const { t, i18n } = useTranslation();
@@ -24,6 +26,7 @@ export default function App() {
   const [mainTab, setMainTab] = useState<MainTab>("results");
   const [sourcesVisited, setSourcesVisited] = useState(false);
   const [sessionsVisited, setSessionsVisited] = useState(false);
+  const [alertsVisited, setAlertsVisited] = useState(false);
 
   return (
     <div
@@ -157,6 +160,7 @@ export default function App() {
                 { key: "sources", label: t("sources_tab") },
                 { key: "live", label: t("live_feed_title") },
                 { key: "sessions", label: t("sessions_tab") },
+                { key: "alerts", label: t("alerts_tab") },
               ] as { key: MainTab; label: string }[]
             ).map(({ key, label }) => (
               <button
@@ -165,6 +169,7 @@ export default function App() {
                   setMainTab(key);
                   if (key === "sources") setSourcesVisited(true);
                   if (key === "sessions") setSessionsVisited(true);
+                  if (key === "alerts") setAlertsVisited(true);
                 }}
                 style={{
                   padding: "0.75rem 1rem",
@@ -199,6 +204,10 @@ export default function App() {
             </div>
             <div style={{ display: mainTab === "sessions" ? "block" : "none", height: "100%", overflowY: "auto" }}>
               <SessionsPanel enabled={sessionsVisited} />
+            </div>
+            <div style={{ display: mainTab === "alerts" ? "block" : "none", height: "100%", overflowY: "auto" }}>
+              <AlertsPanel enabled={alertsVisited} />
+              <NotificationSettings enabled={alertsVisited} />
             </div>
           </div>
         </main>

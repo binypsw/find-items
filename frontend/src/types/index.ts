@@ -54,6 +54,20 @@ export interface PricePoint {
   price: number;
 }
 
+export interface PriceStats {
+  listing_id: number;
+  snapshots_count: number;
+  period_days: number;
+  price_current: number;
+  price_min: number | null;
+  price_max: number | null;
+  price_avg: number | null;
+  trend_7d: "up" | "down" | "stable" | null;
+  trend_7d_pct: number | null;
+  is_likely_fake_sale: boolean;
+  fake_sale_reason: string | null;
+}
+
 export interface Search {
   id: number;
   name: string;
@@ -90,7 +104,7 @@ export interface Source {
   id: string;
   name: string;
   base_url: string;
-  tier: "direct" | "browserless" | "managed_api";
+  tier: "direct" | "browser_headless" | "browser_headed" | "managed_api";
   enabled: boolean;
   health_status: string;
   last_success_at: string | null;
@@ -108,4 +122,21 @@ export interface AccountSession {
   last_used_at: string | null;
   last_health_check_at: string | null;
   created_at: string;
+}
+
+export interface PriceAlert {
+  id: number;
+  listing_id: number;
+  listing_title: string;
+  listing_url: string;
+  target_price: number;
+  comparison: "lte" | "pct_drop";
+  notify_channels: string[];
+  is_active: boolean;
+  triggered_at: string | null;
+  created_at: string;
+}
+
+export interface NotificationConfig {
+  discord_webhook_url: string | null;
 }

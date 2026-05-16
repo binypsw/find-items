@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     proxy_pool_urls: str = ""
     shopee_proxy_url: Optional[str] = None
 
+    # Shopee persistent browser context path (inside Docker volume)
+    shopee_context_path: str = "/data/browser-contexts/shopee"
+
     # Discord
     discord_webhook_url: Optional[str] = None
 

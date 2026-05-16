@@ -158,6 +158,12 @@ async def _refresh_listing_async(
                     except Exception as _e:
                         log.warning("refresh_listing.notify_price_drop_failed", error=str(_e))
 
+            # Evaluate user-defined price alerts
+            try:
+                await _evaluate_price_alerts(db, listing_id, raw, old_price, new_price, now, source_id)
+            except Exception as _ae:
+                log.warning("refresh_listing.alert_eval_failed", error=str(_ae))
+
         listing.last_seen_at = now
         listing.title = raw.title or listing.title
         listing.last_payload_hash = hashlib.sha256(
@@ -182,3 +188,90 @@ async def _refresh_listing_async(
         "listing_id": listing_id,
         "price_changed": price_changed,
     }
+
+
+async def _evaluate_price_alerts(
+    db,
+    listing_id: int,
+    raw,
+    old_price,
+    new_price,
+    now,
+    source_id: str,
+) -> None:
+    """Check all active price alerts for a listing and trigger those that match.
+
+    Runs within the caller's DB session (no new session created).
+    Alert changes are committed by the caller's ``await db.commit()``.
+    """
+    from decimal import Decimal
+
+    from sqlalchemy import select
+
+    from shared.models.app_config import AppConfig
+    from shared.models.price_alert import PriceAlert
+    from shared.services.notifications import notify_price_drop
+
+    result = await db.execute(
+        select(PriceAlert).where(
+            PriceAlert.listing_id == listing_id,
+            PriceAlert.is_active == True,  # noqa: E712
+        )
+    )
+    alerts = result.scalars().all()
+
+    if not alerts:
+        return
+
+    # Fetch optional webhook override once (shared across all alerts)
+    webhook_row = await db.get(AppConfig, "discord_webhook_url")
+    webhook_url_override: str | None = webhook_row.value if webhook_row else None
+
+    # Calculate drop_pct once (may be negative if price went up — handled per alert)
+    if old_price and old_price > Decimal("0"):
+        drop_pct = float((old_price - new_price) / old_price * 100)
+    else:
+        drop_pct = 0.0
+
+    for alert in alerts:
+        triggered = False
+
+        if alert.comparison == "lte":
+            triggered = new_price <= alert.target_price
+        elif alert.comparison == "pct_drop":
+            # Only trigger on an actual price drop
+            triggered = drop_pct >= float(alert.target_price) and new_price < old_price
+
+        if not triggered:
+            continue
+
+        # Send notification per channel
+        if "discord" in (alert.notify_channels or []):
+            try:
+                await notify_price_drop(
+                    listing_id=listing_id,
+                    title=raw.title,
+                    url=str(raw.url),
+                    old_price=float(old_price),
+                    new_price=float(new_price),
+                    drop_pct=drop_pct if new_price < old_price else 0.0,
+                    source_id=source_id,
+                    webhook_url=webhook_url_override,
+                )
+            except Exception as _ne:
+                log.warning(
+                    "alert.notify_failed",
+                    alert_id=alert.id,
+                    listing_id=listing_id,
+                    error=str(_ne),
+                )
+
+        # One-shot: deactivate after trigger
+        alert.triggered_at = now
+        alert.is_active = False
+        log.info(
+            "alert.triggered",
+            alert_id=alert.id,
+            listing_id=listing_id,
+            comparison=alert.comparison,
+        )
