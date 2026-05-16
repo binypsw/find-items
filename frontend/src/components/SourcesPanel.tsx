@@ -18,7 +18,8 @@ const COLORS = {
 
 const TIER_COLORS: Record<string, string> = {
   direct: COLORS.success,
-  browserless: COLORS.warning,
+  browser_headless: COLORS.warning,
+  browser_headed: COLORS.error,
   managed_api: COLORS.primary,
 };
 

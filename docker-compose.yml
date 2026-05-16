@@ -49,6 +49,9 @@ services:
       context: ./backend
       dockerfile: worker/Dockerfile
     env_file: .env
+    environment:
+      - DISPLAY=${DISPLAY:-:0}
+      - WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-wayland-0}
     depends_on:
       postgres:
         condition: service_healthy
@@ -57,6 +60,9 @@ services:
     volumes:
       - ./backend:/app:cached
       - hf_cache:/root/.cache/huggingface
+      - browser_contexts:/data/browser-contexts
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - /mnt/wslg:/mnt/wslg
     command: celery -A worker.celery_app worker -l info -Q default,scrape
 
   beat:
@@ -83,3 +89,4 @@ volumes:
   postgres_data:
   redis_data:
   hf_cache:
+  browser_contexts:
