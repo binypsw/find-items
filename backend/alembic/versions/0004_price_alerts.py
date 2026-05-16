@@ -27,7 +27,7 @@ def upgrade() -> None:
         sa.Column("notify_channels", postgresql.ARRAY(sa.TEXT()), nullable=True),
         sa.Column("is_active", sa.Boolean(), nullable=False, server_default="true"),
         sa.Column("triggered_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("NOW()")),
     )
     op.create_index("ix_price_alerts_listing_id", "price_alerts", ["listing_id"])
 

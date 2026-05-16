@@ -1,9 +1,10 @@
 from datetime import datetime, timezone
 from typing import Optional
+from urllib.parse import urlparse
 
 import structlog
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from shared.config import get_settings
@@ -15,6 +16,13 @@ router = APIRouter(prefix="/api/config", tags=["config"])
 
 DISCORD_WEBHOOK_KEY = "discord_webhook_url"
 
+_ALLOWED_WEBHOOK_HOSTS = {
+    "discord.com",
+    "discordapp.com",
+    "ptb.discord.com",
+    "canary.discord.com",
+}
+
 
 class NotificationConfigResponse(BaseModel):
     discord_webhook_url: Optional[str]
@@ -22,6 +30,21 @@ class NotificationConfigResponse(BaseModel):
 
 class NotificationConfigRequest(BaseModel):
     discord_webhook_url: Optional[str]
+
+    @field_validator("discord_webhook_url")
+    @classmethod
+    def validate_discord_url(cls, v: Optional[str]) -> Optional[str]:
+        if not v:
+            return v
+        parsed = urlparse(v)
+        if parsed.scheme != "https":
+            raise ValueError("Webhook URL must use HTTPS")
+        if (parsed.hostname or "") not in _ALLOWED_WEBHOOK_HOSTS:
+            raise ValueError(
+                "Webhook host must be a Discord domain "
+                f"({', '.join(sorted(_ALLOWED_WEBHOOK_HOSTS))})"
+            )
+        return v
 
 
 @router.get("/notifications", response_model=NotificationConfigResponse)

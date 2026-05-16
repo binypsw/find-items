@@ -158,11 +158,14 @@ async def _refresh_listing_async(
                     except Exception as _e:
                         log.warning("refresh_listing.notify_price_drop_failed", error=str(_e))
 
-            # Evaluate user-defined price alerts
-            try:
-                await _evaluate_price_alerts(db, listing_id, raw, old_price, new_price, now, source_id)
-            except Exception as _ae:
-                log.warning("refresh_listing.alert_eval_failed", error=str(_ae))
+        # Evaluate user-defined price alerts every poll cycle.
+        # lte alerts must fire even if the price hasn't changed since last poll
+        # (e.g. alert was created after price was already below target).
+        # _evaluate_price_alerts guards pct_drop internally with new_price < old_price.
+        try:
+            await _evaluate_price_alerts(db, listing_id, raw, old_price, new_price, now, source_id)
+        except Exception as _ae:
+            log.warning("refresh_listing.alert_eval_failed", error=str(_ae))
 
         listing.last_seen_at = now
         listing.title = raw.title or listing.title

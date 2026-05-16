@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Literal, Optional
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
@@ -37,7 +37,7 @@ class CreateAlertRequest(BaseModel):
     listing_id: int
     target_price: float
     comparison: str
-    notify_channels: list[str] = ["discord"]
+    notify_channels: list[Literal["discord"]] = ["discord"]
 
     @field_validator("comparison")
     @classmethod
@@ -50,7 +50,7 @@ class CreateAlertRequest(BaseModel):
 class UpdateAlertRequest(BaseModel):
     target_price: Optional[float] = None
     is_active: Optional[bool] = None
-    notify_channels: Optional[list[str]] = None
+    notify_channels: Optional[list[Literal["discord"]]] = None
 
 
 async def _to_response(alert: PriceAlert, db: AsyncSession) -> AlertResponse:
