@@ -1,6 +1,8 @@
 import { useState } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { PriceHistoryChart } from "./PriceHistoryChart";
+import { getPriceStats, createAlert } from "../api/client";
 import type { RankedListing } from "../types";
 
 const COLORS = {
@@ -43,7 +45,37 @@ interface ProductCardProps {
 
 export function ProductCard({ listing, cheapestNewPrice }: ProductCardProps) {
   const { t } = useTranslation();
-  const [showChart, setShowChart] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [range, setRange] = useState<"7d" | "30d" | "90d" | "all">("30d");
+  const [alertModalOpen, setAlertModalOpen] = useState(false);
+  const [alertComparison, setAlertComparison] = useState<"lte" | "pct_drop">("lte");
+  const [alertTarget, setAlertTarget] = useState("");
+  const [alertSaved, setAlertSaved] = useState(false);
+
+  const { data: priceStats } = useQuery({
+    queryKey: ["price-stats", listing.id],
+    queryFn: () => getPriceStats(listing.id),
+    enabled: modalOpen,
+  });
+
+  const alertMutation = useMutation({
+    mutationFn: () =>
+      createAlert({
+        listing_id: listing.id,
+        target_price: parseFloat(alertTarget),
+        comparison: alertComparison,
+        notify_channels: ["discord"],
+      }),
+    onSuccess: () => {
+      setAlertSaved(true);
+      setTimeout(() => {
+        setAlertModalOpen(false);
+        setAlertSaved(false);
+        setAlertTarget("");
+        setAlertComparison("lte");
+      }, 1200);
+    },
+  });
 
   const sourceColor = SOURCE_COLORS[listing.source_id.toLowerCase()] ?? COLORS.primary;
   const conditionColor = CONDITION_COLORS[listing.condition] ?? COLORS.muted;
@@ -257,23 +289,39 @@ export function ProductCard({ listing, cheapestNewPrice }: ProductCardProps) {
           </div>
         </div>
 
-        {/* Chart toggle + View button */}
+        {/* Chart modal trigger + Set Alert + View button */}
         <div style={{ display: "flex", gap: "0.375rem" }}>
           <button
-            onClick={() => setShowChart((v) => !v)}
+            onClick={() => setModalOpen(true)}
             style={{
               flex: 1,
               padding: "0.35rem 0",
               borderRadius: 6,
               border: `1px solid ${COLORS.border}`,
-              background: showChart ? COLORS.bg : COLORS.card,
+              background: COLORS.card,
               color: COLORS.text,
               cursor: "pointer",
               fontSize: "0.75rem",
               fontWeight: 500,
             }}
           >
-            {showChart ? "📈 Hide" : "📈 Price Chart"}
+            📈 {t("price_history_title")}
+          </button>
+          <button
+            onClick={() => setAlertModalOpen(true)}
+            style={{
+              flex: 1,
+              padding: "0.35rem 0",
+              borderRadius: 6,
+              border: `1px solid ${COLORS.border}`,
+              background: COLORS.card,
+              color: COLORS.text,
+              cursor: "pointer",
+              fontSize: "0.75rem",
+              fontWeight: 500,
+            }}
+          >
+            🔔 {t("set_alert_title")}
           </button>
           <a
             href={listing.url}
@@ -300,10 +348,317 @@ export function ProductCard({ listing, cheapestNewPrice }: ProductCardProps) {
           </a>
         </div>
 
-        {/* Inline price chart */}
-        {showChart && (
-          <div style={{ marginTop: "0.25rem", overflowX: "auto" }}>
-            <PriceHistoryChart listingId={listing.id} />
+        {/* Set Alert Modal */}
+        {alertModalOpen && (
+          <div
+            onClick={() => setAlertModalOpen(false)}
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(0,0,0,0.5)",
+              zIndex: 1000,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                background: "#fff",
+                borderRadius: 12,
+                padding: "1.25rem",
+                maxWidth: 400,
+                width: "90%",
+                display: "flex",
+                flexDirection: "column",
+                gap: "0.875rem",
+              }}
+            >
+              {/* Modal header */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }}>
+                <span style={{ fontWeight: 700, fontSize: "0.9rem", color: COLORS.text }}>
+                  🔔 {t("set_alert_title")}
+                </span>
+                <button
+                  onClick={() => setAlertModalOpen(false)}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                    fontSize: "1.1rem",
+                    color: COLORS.muted,
+                    padding: "0 0.25rem",
+                    flexShrink: 0,
+                    lineHeight: 1,
+                  }}
+                  aria-label="Close"
+                >
+                  ×
+                </button>
+              </div>
+
+              {/* Listing title preview */}
+              <div
+                style={{
+                  fontSize: "0.75rem",
+                  color: COLORS.muted,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+                title={listing.title}
+              >
+                {listing.title}
+              </div>
+
+              {/* Comparison type selector */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                {(
+                  [
+                    { value: "lte", label: t("set_alert_lte_label") },
+                    { value: "pct_drop", label: t("set_alert_pct_label") },
+                  ] as const
+                ).map(({ value, label }) => (
+                  <label
+                    key={value}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "0.5rem",
+                      cursor: "pointer",
+                      fontSize: "0.813rem",
+                      color: COLORS.text,
+                      padding: "0.4rem 0.6rem",
+                      borderRadius: 6,
+                      border: `1px solid ${alertComparison === value ? COLORS.primary : COLORS.border}`,
+                      background: alertComparison === value ? COLORS.primary + "0d" : COLORS.card,
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      name={`alert-comparison-${listing.id}`}
+                      value={value}
+                      checked={alertComparison === value}
+                      onChange={() => {
+                        setAlertComparison(value);
+                        setAlertTarget("");
+                      }}
+                      style={{ accentColor: COLORS.primary }}
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
+
+              {/* Target value input */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+                <input
+                  type="number"
+                  min={0}
+                  step={alertComparison === "lte" ? 1 : 0.1}
+                  value={alertTarget}
+                  onChange={(e) => setAlertTarget(e.target.value)}
+                  placeholder={alertComparison === "lte" ? "1500" : "10"}
+                  style={{
+                    padding: "0.5rem 0.75rem",
+                    borderRadius: 6,
+                    border: `1px solid ${COLORS.border}`,
+                    fontSize: "0.875rem",
+                    color: COLORS.text,
+                    outline: "none",
+                    width: "100%",
+                    boxSizing: "border-box",
+                  }}
+                />
+              </div>
+
+              {/* Success state */}
+              {alertSaved && (
+                <div
+                  style={{
+                    padding: "0.4rem 0.75rem",
+                    borderRadius: 6,
+                    background: "#dcfce7",
+                    color: "#15803d",
+                    fontSize: "0.75rem",
+                    fontWeight: 500,
+                  }}
+                >
+                  ✓ {t("alert_saved_confirmation")}
+                </div>
+              )}
+
+              {/* Action buttons */}
+              <div style={{ display: "flex", gap: "0.5rem" }}>
+                <button
+                  onClick={() => alertMutation.mutate()}
+                  disabled={
+                    alertMutation.isPending ||
+                    alertSaved ||
+                    !alertTarget ||
+                    isNaN(parseFloat(alertTarget)) ||
+                    parseFloat(alertTarget) <= 0
+                  }
+                  style={{
+                    flex: 1,
+                    padding: "0.45rem 0",
+                    borderRadius: 6,
+                    border: "none",
+                    background:
+                      alertMutation.isPending || alertSaved || !alertTarget
+                        ? COLORS.primary + "88"
+                        : COLORS.primary,
+                    color: "#fff",
+                    cursor:
+                      alertMutation.isPending || alertSaved || !alertTarget
+                        ? "not-allowed"
+                        : "pointer",
+                    fontSize: "0.813rem",
+                    fontWeight: 600,
+                  }}
+                >
+                  {alertMutation.isPending ? t("saving") : t("set_alert_save")}
+                </button>
+                <button
+                  onClick={() => setAlertModalOpen(false)}
+                  style={{
+                    flex: 1,
+                    padding: "0.45rem 0",
+                    borderRadius: 6,
+                    border: `1px solid ${COLORS.border}`,
+                    background: COLORS.card,
+                    color: COLORS.text,
+                    cursor: "pointer",
+                    fontSize: "0.813rem",
+                    fontWeight: 500,
+                  }}
+                >
+                  {t("cancel_btn")}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Price History Modal */}
+        {modalOpen && (
+          <div
+            onClick={() => setModalOpen(false)}
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(0,0,0,0.5)",
+              zIndex: 1000,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                background: "#fff",
+                borderRadius: 12,
+                padding: "1.25rem",
+                maxWidth: 600,
+                width: "90%",
+                display: "flex",
+                flexDirection: "column",
+                gap: "0.75rem",
+              }}
+            >
+              {/* Modal header */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }}>
+                <span
+                  style={{
+                    fontWeight: 600,
+                    fontSize: "0.9rem",
+                    color: COLORS.text,
+                    maxWidth: 400,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                  title={listing.title}
+                >
+                  {listing.title}
+                </span>
+                <button
+                  onClick={() => setModalOpen(false)}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                    fontSize: "1.1rem",
+                    color: COLORS.muted,
+                    padding: "0 0.25rem",
+                    flexShrink: 0,
+                    lineHeight: 1,
+                  }}
+                  aria-label="Close"
+                >
+                  ×
+                </button>
+              </div>
+
+              {/* Range selector */}
+              <div style={{ display: "flex", gap: "0.375rem" }}>
+                {(["7d", "30d", "90d", "all"] as const).map((r) => (
+                  <button
+                    key={r}
+                    onClick={() => setRange(r)}
+                    style={{
+                      padding: "0.25rem 0.6rem",
+                      borderRadius: 6,
+                      border: `1px solid ${range === r ? COLORS.primary : COLORS.border}`,
+                      background: range === r ? COLORS.primary : COLORS.card,
+                      color: range === r ? "#fff" : COLORS.text,
+                      cursor: "pointer",
+                      fontSize: "0.75rem",
+                      fontWeight: range === r ? 600 : 400,
+                    }}
+                  >
+                    {t(`range_${r}`)}
+                  </button>
+                ))}
+              </div>
+
+              {/* Price stats row */}
+              {priceStats && priceStats.price_min != null && (
+                <div style={{ fontSize: "0.75rem", color: COLORS.muted }}>
+                  {t("price_stats_min")} {formatPrice(priceStats.price_min)}
+                  {" · "}
+                  {t("price_stats_avg")} {formatPrice(priceStats.price_avg ?? 0)}
+                  {" · "}
+                  {t("price_stats_max")} {formatPrice(priceStats.price_max ?? 0)}
+                </div>
+              )}
+
+              {/* Fake sale warning */}
+              {priceStats?.is_likely_fake_sale && (
+                <div
+                  style={{
+                    background: "#fffbeb",
+                    border: "1px solid #f59e0b",
+                    borderRadius: 6,
+                    padding: "0.5rem 0.75rem",
+                    fontSize: "0.75rem",
+                    color: "#92400e",
+                  }}
+                >
+                  <strong>{t("fake_sale_badge")}</strong>
+                  {priceStats.fake_sale_reason && (
+                    <span>
+                      {" "}{t("fake_sale_reason_label")} {priceStats.fake_sale_reason}
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {/* Chart */}
+              <PriceHistoryChart listingId={listing.id} range={range} />
+            </div>
           </div>
         )}
       </div>

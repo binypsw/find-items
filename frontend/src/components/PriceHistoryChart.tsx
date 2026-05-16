@@ -13,6 +13,7 @@ import type { PricePoint } from "../types";
 
 interface PriceHistoryChartProps {
   listingId: number;
+  range?: "7d" | "30d" | "90d" | "all";
 }
 
 function formatDateLabel(dateStr: string): string {
@@ -24,10 +25,10 @@ function formatPrice(price: number): string {
   return "฿" + price.toLocaleString("th-TH", { minimumFractionDigits: 0 });
 }
 
-export function PriceHistoryChart({ listingId }: PriceHistoryChartProps) {
+export function PriceHistoryChart({ listingId, range = "30d" }: PriceHistoryChartProps) {
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["price-history", listingId],
-    queryFn: () => getPriceHistory(listingId, "30d"),
+    queryKey: ["price-history", listingId, range],
+    queryFn: () => getPriceHistory(listingId, range),
     enabled: listingId > 0,
   });
 

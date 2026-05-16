@@ -1,5 +1,5 @@
 from datetime import datetime, timezone, timedelta
-from typing import Optional
+from typing import Literal, Optional
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -153,12 +153,99 @@ async def list_listings(
     )
 
 
-@router.get("/{listing_id}", response_model=ListingResponse)
-async def get_listing(listing_id: int, db: AsyncSession = Depends(get_db)):
+class PriceStatsResponse(BaseModel):
+    listing_id: int
+    snapshots_count: int
+    period_days: int
+    price_current: float
+    price_min: Optional[float]
+    price_max: Optional[float]
+    price_avg: Optional[float]
+    trend_7d: Optional[Literal["up", "down", "stable"]]
+    trend_7d_pct: Optional[float]
+    is_likely_fake_sale: bool
+    fake_sale_reason: Optional[str]
+
+
+@router.get("/{listing_id}/price-stats", response_model=PriceStatsResponse)
+async def get_price_stats(listing_id: int, db: AsyncSession = Depends(get_db)):
     listing = await db.get(Listing, listing_id)
     if not listing:
         raise HTTPException(status_code=404, detail="Listing not found")
-    return _to_response(listing)
+
+    period_days = 30
+    cutoff = datetime.now(timezone.utc) - timedelta(days=period_days)
+    stmt = (
+        select(PriceSnapshot)
+        .where(PriceSnapshot.listing_id == listing_id)
+        .where(PriceSnapshot.scraped_at >= cutoff)
+        .order_by(PriceSnapshot.scraped_at.asc())
+    )
+    result = await db.execute(stmt)
+    snapshots = result.scalars().all()
+
+    price_current = float(listing.current_price_thb)
+    snapshots_count = len(snapshots)
+
+    if snapshots_count == 0:
+        return PriceStatsResponse(
+            listing_id=listing_id,
+            snapshots_count=0,
+            period_days=period_days,
+            price_current=price_current,
+            price_min=None,
+            price_max=None,
+            price_avg=None,
+            trend_7d=None,
+            trend_7d_pct=None,
+            is_likely_fake_sale=False,
+            fake_sale_reason=None,
+        )
+
+    prices = [float(s.price_thb) for s in snapshots]
+    price_min = min(prices)
+    price_max = max(prices)
+    price_avg = sum(prices) / snapshots_count
+
+    # Trend 7d: oldest snapshot within last 7 days
+    cutoff_7d = datetime.now(timezone.utc) - timedelta(days=7)
+    snapshots_7d = [s for s in snapshots if s.scraped_at >= cutoff_7d]
+    oldest_7d_price = float(snapshots_7d[0].price_thb) if snapshots_7d else 0.0
+    if snapshots_7d and oldest_7d_price != 0:
+        trend_7d_pct = ((price_current - oldest_7d_price) / oldest_7d_price) * 100
+        if trend_7d_pct < -2:
+            trend_7d = "down"
+        elif trend_7d_pct > 2:
+            trend_7d = "up"
+        else:
+            trend_7d = "stable"
+    else:
+        trend_7d = None
+        trend_7d_pct = None
+
+    # Flash sale detection (only when snapshots_count >= 3)
+    if snapshots_count >= 3 and price_max > price_avg * 1.20 and price_current < price_avg * 0.90:
+        is_likely_fake_sale = True
+        fake_sale_reason = f"Price peaked at ฿{price_max:,.0f} before this apparent discount"
+    else:
+        is_likely_fake_sale = False
+        fake_sale_reason = None
+
+    log.info("price_stats_computed", listing_id=listing_id, snapshots_count=snapshots_count, trend_7d=trend_7d)
+
+    return PriceStatsResponse(
+        listing_id=listing_id,
+        snapshots_count=snapshots_count,
+        period_days=period_days,
+        price_current=price_current,
+        price_min=price_min,
+        price_max=price_max,
+        price_avg=round(price_avg, 2),
+        trend_7d=trend_7d,
+        trend_7d_pct=round(trend_7d_pct, 2) if trend_7d_pct is not None else None,
+        is_likely_fake_sale=is_likely_fake_sale,
+        fake_sale_reason=fake_sale_reason,
+    )
 
 
 @router.get("/{listing_id}/price-history")
@@ -186,3 +273,11 @@ async def get_price_history(
         {"ts": snap.scraped_at.isoformat(), "price": float(snap.price_thb)}
         for snap in snapshots
     ]
+
+
+@router.get("/{listing_id}", response_model=ListingResponse)
+async def get_listing(listing_id: int, db: AsyncSession = Depends(get_db)):
+    listing = await db.get(Listing, listing_id)
+    if not listing:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    return _to_response(listing)
