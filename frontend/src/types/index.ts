@@ -140,3 +140,19 @@ export interface PriceAlert {
 export interface NotificationConfig {
   discord_webhook_url: string | null;
 }
+
+export interface SellerSignals {
+  name: string | null;
+  rating: number | null;        // 0.0 – 5.0
+  review_count: number | null;
+  sold_count: number | null;
+  is_verified: boolean;
+  response_rate: number | null; // 0–100 %
+  shop_age_days: number | null;
+}
+
+export interface SellerRisk {
+  warning_level: "ok" | "caution" | "warning";
+  reasons: string[];
+  signals: SellerSignals;
+}

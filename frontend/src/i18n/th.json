@@ -86,5 +86,19 @@
   "discord_webhook_label": "Discord Webhook URL",
   "notif_save_success": "บันทึกสำเร็จ",
   "notif_save_error": "บันทึกไม่สำเร็จ",
-  "alert_saved_confirmation": "บันทึกแล้ว!"
+  "alert_saved_confirmation": "บันทึกแล้ว!",
+  "seller_tab": "ผู้ขาย",
+  "seller_rating_label": "คะแนน",
+  "seller_reviews_label": "รีวิว",
+  "seller_sold_label": "ขายแล้ว",
+  "seller_verified_label": "ยืนยันแล้ว",
+  "seller_unverified_label": "ยังไม่ยืนยัน",
+  "seller_no_data": "ไม่มีข้อมูลผู้ขาย",
+  "seller_warning_caution": "ควรระวัง",
+  "seller_warning_warning": "เสี่ยง",
+  "seller_warning_ok": "ผู้ขายน่าเชื่อถือ",
+  "seller_name_label": "ผู้ขาย",
+  "seller_response_rate_label": "อัตราตอบกลับ",
+  "seller_shop_age_label": "อายุร้าน",
+  "seller_shop_age_days": "{{days}} วัน"
 }

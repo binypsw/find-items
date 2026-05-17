@@ -11,6 +11,11 @@ from shared.database import get_db
 from shared.models.listing import Listing
 from shared.models.price_snapshot import PriceSnapshot
 from shared.models.scrape_run import ScrapeRun
+from shared.services.seller_analyzer import (
+    SellerRisk,
+    extract_seller_signals,
+    classify_seller_risk,
+)
 
 log = structlog.get_logger()
 router = APIRouter(prefix="/api/listings", tags=["listings"])
@@ -124,15 +129,15 @@ async def list_listings(
     if location is not None:
         stmt = stmt.where(Listing.location.ilike(f"%{location}%"))
 
-    # Sorting
+    # Sorting — always append .id as tiebreaker to guarantee deterministic pagination
     if sort == "price_asc":
-        stmt = stmt.order_by(Listing.current_price_thb.asc())
+        stmt = stmt.order_by(Listing.current_price_thb.asc(), Listing.id.asc())
     elif sort == "price_desc":
-        stmt = stmt.order_by(Listing.current_price_thb.desc())
+        stmt = stmt.order_by(Listing.current_price_thb.desc(), Listing.id.asc())
     elif sort == "oldest":
-        stmt = stmt.order_by(Listing.first_seen_at.asc())
+        stmt = stmt.order_by(Listing.first_seen_at.asc(), Listing.id.asc())
     else:  # newest
-        stmt = stmt.order_by(Listing.first_seen_at.desc())
+        stmt = stmt.order_by(Listing.first_seen_at.desc(), Listing.id.asc())
 
     # Count total
     from sqlalchemy import func, select as sa_select
@@ -281,3 +286,21 @@ async def get_listing(listing_id: int, db: AsyncSession = Depends(get_db)):
     if not listing:
         raise HTTPException(status_code=404, detail="Listing not found")
     return _to_response(listing)
+
+
+@router.get("/{listing_id}/seller", response_model=SellerRisk)
+async def get_seller_info(listing_id: int, db: AsyncSession = Depends(get_db)):
+    """Return seller signals and risk classification for a listing.
+
+    Uses the seller_payload stored in the listing row (written by scrape_task).
+    No additional scraping is performed — this is pure data analysis.
+    """
+    listing = await db.get(Listing, listing_id)
+    if not listing:
+        raise HTTPException(status_code=404, detail="Listing not found")
+
+    signals = extract_seller_signals(listing.seller_payload or {})
+    risk = classify_seller_risk(signals)
+
+    log.info("seller_info_fetched", listing_id=listing_id, warning_level=risk.warning_level)
+    return risk

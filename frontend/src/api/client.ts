@@ -8,6 +8,7 @@ import type {
   PriceStats,
   RankedListing,
   Search,
+  SellerRisk,
   Source,
   ScrapeRun,
   StructuredQuery,
@@ -36,6 +37,8 @@ export const getPriceHistory = (id: number, range = "30d") =>
   api.get<PricePoint[]>(`/listings/${id}/price-history`, { params: { range } }).then((r) => r.data);
 export const getPriceStats = (id: number) =>
   api.get<PriceStats>(`/listings/${id}/price-stats`).then((r) => r.data);
+export const getSellerInfo = (id: number) =>
+  api.get<SellerRisk>(`/listings/${id}/seller`).then((r) => r.data);
 
 // Sources
 export const getSources = () => api.get<Source[]>("/sources").then((r) => r.data);
