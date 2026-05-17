@@ -86,5 +86,19 @@
   "discord_webhook_label": "Discord Webhook URL",
   "notif_save_success": "Saved successfully",
   "notif_save_error": "Failed to save",
-  "alert_saved_confirmation": "Alert saved!"
+  "alert_saved_confirmation": "Alert saved!",
+  "seller_tab": "Seller",
+  "seller_rating_label": "Rating",
+  "seller_reviews_label": "Reviews",
+  "seller_sold_label": "Sold",
+  "seller_verified_label": "Verified",
+  "seller_unverified_label": "Unverified",
+  "seller_no_data": "No seller information available",
+  "seller_warning_caution": "Caution",
+  "seller_warning_warning": "Warning",
+  "seller_warning_ok": "Trusted seller",
+  "seller_name_label": "Seller",
+  "seller_response_rate_label": "Response rate",
+  "seller_shop_age_label": "Shop age",
+  "seller_shop_age_days": "{{days}} days"
 }

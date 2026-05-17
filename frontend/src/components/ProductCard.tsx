@@ -1,8 +1,8 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { PriceHistoryChart } from "./PriceHistoryChart";
-import { getPriceStats, createAlert } from "../api/client";
+import { getPriceStats, createAlert, getSellerInfo } from "../api/client";
 import type { RankedListing } from "../types";
 
 const COLORS = {
@@ -38,6 +38,38 @@ function formatPrice(price: number): string {
   return "฿" + price.toLocaleString("th-TH", { minimumFractionDigits: 0 });
 }
 
+function _SellerRow({
+  label,
+  value,
+  valueStyle,
+}: {
+  label: string;
+  value: string;
+  valueStyle?: React.CSSProperties;
+}) {
+  return (
+    <div
+      style={{
+        background: "#f9fafb",
+        borderRadius: 6,
+        padding: "0.4rem 0.6rem",
+        display: "flex",
+        flexDirection: "column",
+        gap: "0.15rem",
+      }}
+    >
+      {label && (
+        <span style={{ fontSize: "0.68rem", color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.03em" }}>
+          {label}
+        </span>
+      )}
+      <span style={{ fontSize: "0.813rem", fontWeight: 600, color: "#374151", ...valueStyle }}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
 interface ProductCardProps {
   listing: RankedListing;
   cheapestNewPrice?: number | null; // reference new price for used-item comparison
@@ -51,11 +83,21 @@ export function ProductCard({ listing, cheapestNewPrice }: ProductCardProps) {
   const [alertComparison, setAlertComparison] = useState<"lte" | "pct_drop">("lte");
   const [alertTarget, setAlertTarget] = useState("");
   const [alertSaved, setAlertSaved] = useState(false);
+  const [modalTab, setModalTab] = useState<"history" | "seller">("history");
+  const [cardHovered, setCardHovered] = useState(false);
 
   const { data: priceStats } = useQuery({
     queryKey: ["price-stats", listing.id],
     queryFn: () => getPriceStats(listing.id),
     enabled: modalOpen,
+  });
+
+  // Fetch seller info lazily: only when user hovers card or opens modal
+  const { data: sellerRisk } = useQuery({
+    queryKey: ["seller-info", listing.id],
+    queryFn: () => getSellerInfo(listing.id),
+    enabled: cardHovered || modalOpen,
+    staleTime: 5 * 60 * 1000,  // 5 min cache
   });
 
   const alertMutation = useMutation({
@@ -87,8 +129,18 @@ export function ProductCard({ listing, cheapestNewPrice }: ProductCardProps) {
   const priceChangePct = listing.price_change_7d_pct;
   const hasPriceChange = priceChangePct !== null && priceChangePct !== undefined;
 
+  // Seller warning badge config (shown on card)
+  const warningBadgeConfig =
+    sellerRisk?.warning_level === "warning"
+      ? { bg: "#fef2f2", border: "#fca5a5", text: "#991b1b", label: t("seller_warning_warning") }
+      : sellerRisk?.warning_level === "caution"
+      ? { bg: "#fffbeb", border: "#fcd34d", text: "#92400e", label: t("seller_warning_caution") }
+      : null;
+
   return (
     <div
+      onMouseEnter={() => setCardHovered(true)}
+      onMouseLeave={() => setCardHovered(false)}
       style={{
         background: COLORS.card,
         borderRadius: 12,
@@ -221,8 +273,8 @@ export function ProductCard({ listing, cheapestNewPrice }: ProductCardProps) {
           )}
         </div>
 
-        {/* Condition badge */}
-        <div>
+        {/* Condition badge + review badge row */}
+        <div style={{ display: "flex", alignItems: "center", gap: "0.375rem", flexWrap: "wrap" }}>
           <span
             style={{
               display: "inline-block",
@@ -237,7 +289,69 @@ export function ProductCard({ listing, cheapestNewPrice }: ProductCardProps) {
           >
             {listing.condition}
           </span>
+
+          {/* Review badge — shown when seller has rating or reviews */}
+          {sellerRisk?.signals.rating != null && (
+            <span
+              title={`${sellerRisk.signals.review_count != null ? sellerRisk.signals.review_count + " reviews" : ""}`}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "0.2rem",
+                padding: "0.15rem 0.45rem",
+                borderRadius: 5,
+                background: sellerRisk.signals.rating >= 4.0 ? "#dcfce7" : sellerRisk.signals.rating >= 3.5 ? "#fef9c3" : "#fee2e2",
+                color: sellerRisk.signals.rating >= 4.0 ? "#15803d" : sellerRisk.signals.rating >= 3.5 ? "#92400e" : "#991b1b",
+                fontSize: "0.7rem",
+                fontWeight: 600,
+              }}
+            >
+              ★ {sellerRisk.signals.rating.toFixed(1)}
+              {sellerRisk.signals.review_count != null && (
+                <span style={{ fontWeight: 400 }}>({sellerRisk.signals.review_count})</span>
+              )}
+            </span>
+          )}
+
+          {/* Sold count badge — shown when available */}
+          {sellerRisk?.signals.sold_count != null && sellerRisk.signals.rating == null && (
+            <span
+              style={{
+                padding: "0.15rem 0.45rem",
+                borderRadius: 5,
+                background: "#f3f4f6",
+                color: COLORS.muted,
+                fontSize: "0.7rem",
+                fontWeight: 500,
+              }}
+            >
+              {t("seller_sold_label")} {sellerRisk.signals.sold_count.toLocaleString()}
+            </span>
+          )}
         </div>
+
+        {/* Seller warning banner — shown when caution or warning */}
+        {warningBadgeConfig && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              gap: "0.3rem",
+              padding: "0.3rem 0.5rem",
+              borderRadius: 6,
+              background: warningBadgeConfig.bg,
+              border: `1px solid ${warningBadgeConfig.border}`,
+              fontSize: "0.68rem",
+              color: warningBadgeConfig.text,
+              lineHeight: 1.4,
+            }}
+          >
+            <span style={{ flexShrink: 0, fontWeight: 700 }}>
+              {warningBadgeConfig.label}:
+            </span>
+            <span>{sellerRisk!.reasons.slice(0, 2).join(" · ")}</span>
+          </div>
+        )}
       </div>
 
       {/* Score + footer */}
@@ -292,7 +406,7 @@ export function ProductCard({ listing, cheapestNewPrice }: ProductCardProps) {
         {/* Chart modal trigger + Set Alert + View button */}
         <div style={{ display: "flex", gap: "0.375rem" }}>
           <button
-            onClick={() => setModalOpen(true)}
+            onClick={() => { setModalOpen(true); setModalTab("history"); }}
             style={{
               flex: 1,
               padding: "0.35rem 0",
@@ -541,7 +655,7 @@ export function ProductCard({ listing, cheapestNewPrice }: ProductCardProps) {
           </div>
         )}
 
-        {/* Price History Modal */}
+        {/* Price History / Seller Modal */}
         {modalOpen && (
           <div
             onClick={() => setModalOpen(false)}
@@ -575,7 +689,7 @@ export function ProductCard({ listing, cheapestNewPrice }: ProductCardProps) {
                     fontWeight: 600,
                     fontSize: "0.9rem",
                     color: COLORS.text,
-                    maxWidth: 400,
+                    maxWidth: 420,
                     overflow: "hidden",
                     textOverflow: "ellipsis",
                     whiteSpace: "nowrap",
@@ -602,62 +716,197 @@ export function ProductCard({ listing, cheapestNewPrice }: ProductCardProps) {
                 </button>
               </div>
 
-              {/* Range selector */}
-              <div style={{ display: "flex", gap: "0.375rem" }}>
-                {(["7d", "30d", "90d", "all"] as const).map((r) => (
+              {/* Tab selector */}
+              <div style={{ display: "flex", borderBottom: `1px solid ${COLORS.border}`, gap: 0 }}>
+                {(["history", "seller"] as const).map((tab) => (
                   <button
-                    key={r}
-                    onClick={() => setRange(r)}
+                    key={tab}
+                    onClick={() => setModalTab(tab)}
                     style={{
-                      padding: "0.25rem 0.6rem",
-                      borderRadius: 6,
-                      border: `1px solid ${range === r ? COLORS.primary : COLORS.border}`,
-                      background: range === r ? COLORS.primary : COLORS.card,
-                      color: range === r ? "#fff" : COLORS.text,
+                      padding: "0.45rem 0.85rem",
+                      border: "none",
+                      background: "none",
                       cursor: "pointer",
-                      fontSize: "0.75rem",
-                      fontWeight: range === r ? 600 : 400,
+                      fontSize: "0.8rem",
+                      fontWeight: modalTab === tab ? 700 : 400,
+                      color: modalTab === tab ? COLORS.primary : COLORS.muted,
+                      borderBottom: modalTab === tab ? `2px solid ${COLORS.primary}` : "2px solid transparent",
+                      marginBottom: -1,
                     }}
                   >
-                    {t(`range_${r}`)}
+                    {tab === "history" ? `📈 ${t("price_history_title")}` : `🧑‍💼 ${t("seller_tab")}`}
                   </button>
                 ))}
               </div>
 
-              {/* Price stats row */}
-              {priceStats && priceStats.price_min != null && (
-                <div style={{ fontSize: "0.75rem", color: COLORS.muted }}>
-                  {t("price_stats_min")} {formatPrice(priceStats.price_min)}
-                  {" · "}
-                  {t("price_stats_avg")} {formatPrice(priceStats.price_avg ?? 0)}
-                  {" · "}
-                  {t("price_stats_max")} {formatPrice(priceStats.price_max ?? 0)}
-                </div>
+              {/* ── History tab ── */}
+              {modalTab === "history" && (
+                <>
+                  {/* Range selector */}
+                  <div style={{ display: "flex", gap: "0.375rem" }}>
+                    {(["7d", "30d", "90d", "all"] as const).map((r) => (
+                      <button
+                        key={r}
+                        onClick={() => setRange(r)}
+                        style={{
+                          padding: "0.25rem 0.6rem",
+                          borderRadius: 6,
+                          border: `1px solid ${range === r ? COLORS.primary : COLORS.border}`,
+                          background: range === r ? COLORS.primary : COLORS.card,
+                          color: range === r ? "#fff" : COLORS.text,
+                          cursor: "pointer",
+                          fontSize: "0.75rem",
+                          fontWeight: range === r ? 600 : 400,
+                        }}
+                      >
+                        {t(`range_${r}`)}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Price stats row */}
+                  {priceStats && priceStats.price_min != null && (
+                    <div style={{ fontSize: "0.75rem", color: COLORS.muted }}>
+                      {t("price_stats_min")} {formatPrice(priceStats.price_min)}
+                      {" · "}
+                      {t("price_stats_avg")} {formatPrice(priceStats.price_avg ?? 0)}
+                      {" · "}
+                      {t("price_stats_max")} {formatPrice(priceStats.price_max ?? 0)}
+                    </div>
+                  )}
+
+                  {/* Fake sale warning */}
+                  {priceStats?.is_likely_fake_sale && (
+                    <div
+                      style={{
+                        background: "#fffbeb",
+                        border: "1px solid #f59e0b",
+                        borderRadius: 6,
+                        padding: "0.5rem 0.75rem",
+                        fontSize: "0.75rem",
+                        color: "#92400e",
+                      }}
+                    >
+                      <strong>{t("fake_sale_badge")}</strong>
+                      {priceStats.fake_sale_reason && (
+                        <span>
+                          {" "}{t("fake_sale_reason_label")} {priceStats.fake_sale_reason}
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Chart */}
+                  <PriceHistoryChart listingId={listing.id} range={range} />
+                </>
               )}
 
-              {/* Fake sale warning */}
-              {priceStats?.is_likely_fake_sale && (
-                <div
-                  style={{
-                    background: "#fffbeb",
-                    border: "1px solid #f59e0b",
-                    borderRadius: 6,
-                    padding: "0.5rem 0.75rem",
-                    fontSize: "0.75rem",
-                    color: "#92400e",
-                  }}
-                >
-                  <strong>{t("fake_sale_badge")}</strong>
-                  {priceStats.fake_sale_reason && (
-                    <span>
-                      {" "}{t("fake_sale_reason_label")} {priceStats.fake_sale_reason}
-                    </span>
+              {/* ── Seller tab ── */}
+              {modalTab === "seller" && (
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                  {!sellerRisk ? (
+                    <div style={{ fontSize: "0.813rem", color: COLORS.muted }}>{t("loading")}</div>
+                  ) : (
+                    <>
+                      {/* Warning level banner */}
+                      {sellerRisk.warning_level !== "ok" ? (
+                        <div
+                          style={{
+                            padding: "0.6rem 0.75rem",
+                            borderRadius: 8,
+                            background: sellerRisk.warning_level === "warning" ? "#fef2f2" : "#fffbeb",
+                            border: `1px solid ${sellerRisk.warning_level === "warning" ? "#fca5a5" : "#fcd34d"}`,
+                            fontSize: "0.8rem",
+                            color: sellerRisk.warning_level === "warning" ? "#991b1b" : "#92400e",
+                          }}
+                        >
+                          <div style={{ fontWeight: 700, marginBottom: "0.3rem" }}>
+                            {sellerRisk.warning_level === "warning" ? "⚠ " : "⚡ "}
+                            {t(`seller_warning_${sellerRisk.warning_level}`)}
+                          </div>
+                          <ul style={{ margin: 0, paddingLeft: "1rem" }}>
+                            {sellerRisk.reasons.map((r, i) => (
+                              <li key={i} style={{ marginBottom: "0.1rem" }}>{r}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : (
+                        <div
+                          style={{
+                            padding: "0.5rem 0.75rem",
+                            borderRadius: 8,
+                            background: "#f0fdf4",
+                            border: "1px solid #86efac",
+                            fontSize: "0.8rem",
+                            color: "#15803d",
+                            fontWeight: 600,
+                          }}
+                        >
+                          ✓ {t("seller_warning_ok")}
+                        </div>
+                      )}
+
+                      {/* Seller details grid */}
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "1fr 1fr",
+                          gap: "0.5rem",
+                        }}
+                      >
+                        {sellerRisk.signals.name && (
+                          <_SellerRow label={t("seller_name_label")} value={sellerRisk.signals.name} />
+                        )}
+                        {sellerRisk.signals.rating != null && (
+                          <_SellerRow
+                            label={t("seller_rating_label")}
+                            value={`★ ${sellerRisk.signals.rating.toFixed(1)} / 5`}
+                          />
+                        )}
+                        {sellerRisk.signals.review_count != null && (
+                          <_SellerRow
+                            label={t("seller_reviews_label")}
+                            value={sellerRisk.signals.review_count.toLocaleString()}
+                          />
+                        )}
+                        {sellerRisk.signals.sold_count != null && (
+                          <_SellerRow
+                            label={t("seller_sold_label")}
+                            value={sellerRisk.signals.sold_count.toLocaleString()}
+                          />
+                        )}
+                        {sellerRisk.signals.response_rate != null && (
+                          <_SellerRow
+                            label={t("seller_response_rate_label")}
+                            value={`${sellerRisk.signals.response_rate.toFixed(0)}%`}
+                          />
+                        )}
+                        {sellerRisk.signals.shop_age_days != null && (
+                          <_SellerRow
+                            label={t("seller_shop_age_label")}
+                            value={t("seller_shop_age_days", { days: sellerRisk.signals.shop_age_days })}
+                          />
+                        )}
+                        <_SellerRow
+                          label=""
+                          value={sellerRisk.signals.is_verified ? `✓ ${t("seller_verified_label")}` : t("seller_unverified_label")}
+                          valueStyle={{ color: sellerRisk.signals.is_verified ? "#15803d" : COLORS.muted }}
+                        />
+                      </div>
+
+                      {/* No meaningful data fallback */}
+                      {sellerRisk.signals.name == null &&
+                        sellerRisk.signals.rating == null &&
+                        sellerRisk.signals.review_count == null &&
+                        sellerRisk.signals.sold_count == null && (
+                          <div style={{ fontSize: "0.813rem", color: COLORS.muted, textAlign: "center", paddingTop: "0.5rem" }}>
+                            {t("seller_no_data")}
+                          </div>
+                        )}
+                    </>
                   )}
                 </div>
               )}
-
-              {/* Chart */}
-              <PriceHistoryChart listingId={listing.id} range={range} />
             </div>
           </div>
         )}
