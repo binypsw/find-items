@@ -75,7 +75,9 @@ export interface Search {
   parsed_query: StructuredQuery | null;
   schedule_cron: string | null;
   is_active: boolean;
+  watchlist_mode: boolean;
   last_run_at: string | null;
+  last_watchlist_run_at: string | null;
   created_at: string;
 }
 

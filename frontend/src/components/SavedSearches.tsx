@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getSearches, runSearch, deleteSearch } from "../api/client";
+import { getSearches, runSearch, deleteSearch, toggleWatchlist } from "../api/client";
 import type { Search } from "../types";
 
 const COLORS = {
@@ -86,6 +86,13 @@ export function SavedSearches({ selectedId, onSelect }: SavedSearchesProps) {
     },
   });
 
+  const watchlistMut = useMutation({
+    mutationFn: ({ id, mode }: { id: number; mode: boolean }) => toggleWatchlist(id, mode),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["searches"] });
+    },
+  });
+
   const runAll = async () => {
     setIsRunningAll(true);
     try {
@@ -101,6 +108,9 @@ export function SavedSearches({ selectedId, onSelect }: SavedSearchesProps) {
       setIsRunningAll(false);
     }
   };
+
+  const regularSearches = searches.filter((s: Search) => !s.watchlist_mode);
+  const watchlistSearches = searches.filter((s: Search) => s.watchlist_mode);
 
   return (
     <aside
@@ -171,7 +181,7 @@ export function SavedSearches({ selectedId, onSelect }: SavedSearchesProps) {
           </div>
         ) : (
           <>
-            {searches.map((s: Search) => (
+            {regularSearches.map((s: Search) => (
               <SearchRow
                 key={s.id}
                 search={s}
@@ -180,20 +190,76 @@ export function SavedSearches({ selectedId, onSelect }: SavedSearchesProps) {
                 onSelect={() => onSelect(s.id)}
                 onRun={() => runMut.mutate(s.id)}
                 onDelete={() => deleteMut.mutate(s.id)}
+                onToggleWatch={() =>
+                  watchlistMut.mutate({ id: s.id, mode: !s.watchlist_mode })
+                }
                 isRunning={runMut.isPending && runMut.variables === s.id}
                 isDeleting={deleteMut.isPending && deleteMut.variables === s.id}
+                isTogglingWatch={
+                  watchlistMut.isPending &&
+                  (watchlistMut.variables as { id: number } | undefined)?.id === s.id
+                }
                 t={t}
               />
             ))}
 
-            {/* Watchlist placeholder */}
+            {/* Watchlist section */}
             <hr style={{ margin: "0.5rem 0", border: "none", borderTop: "1px solid #e5e7eb" }} />
-            <div style={{ padding: "0.5rem 1rem 0.25rem", fontSize: "0.75rem", fontWeight: 700, color: COLORS.text }}>
-              {t("watchlist_title")}
+            <div
+              style={{
+                padding: "0.5rem 1rem 0.25rem",
+                fontSize: "0.75rem",
+                fontWeight: 700,
+                color: COLORS.text,
+                display: "flex",
+                alignItems: "center",
+                gap: "0.375rem",
+              }}
+            >
+              <span>{t("watchlist_title")}</span>
+              {watchlistSearches.length > 0 && (
+                <span
+                  style={{
+                    background: "#dbeafe",
+                    color: COLORS.primary,
+                    borderRadius: 10,
+                    padding: "0 0.375rem",
+                    fontSize: "0.688rem",
+                    fontWeight: 700,
+                  }}
+                >
+                  {watchlistSearches.length}
+                </span>
+              )}
             </div>
-            <div style={{ padding: "0.25rem 1rem 0.5rem", fontSize: "0.75rem", color: COLORS.muted }}>
-              {t("watchlist_coming_soon")}
-            </div>
+
+            {watchlistSearches.length === 0 ? (
+              <div style={{ padding: "0.25rem 1rem 0.5rem", fontSize: "0.75rem", color: COLORS.muted }}>
+                {t("watchlist_empty")}
+              </div>
+            ) : (
+              watchlistSearches.map((s: Search) => (
+                <SearchRow
+                  key={s.id}
+                  search={s}
+                  isSelected={selectedId === s.id}
+                  lang={i18n.language}
+                  onSelect={() => onSelect(s.id)}
+                  onRun={() => runMut.mutate(s.id)}
+                  onDelete={() => deleteMut.mutate(s.id)}
+                  onToggleWatch={() =>
+                    watchlistMut.mutate({ id: s.id, mode: !s.watchlist_mode })
+                  }
+                  isRunning={runMut.isPending && runMut.variables === s.id}
+                  isDeleting={deleteMut.isPending && deleteMut.variables === s.id}
+                  isTogglingWatch={
+                    watchlistMut.isPending &&
+                    (watchlistMut.variables as { id: number } | undefined)?.id === s.id
+                  }
+                  t={t}
+                />
+              ))
+            )}
           </>
         )}
       </div>
@@ -208,8 +274,10 @@ interface SearchRowProps {
   onSelect: () => void;
   onRun: () => void;
   onDelete: () => void;
+  onToggleWatch: () => void;
   isRunning: boolean;
   isDeleting: boolean;
+  isTogglingWatch: boolean;
   t: (key: string) => string;
 }
 
@@ -220,10 +288,14 @@ function SearchRow({
   onSelect,
   onRun,
   onDelete,
+  onToggleWatch,
   isRunning,
   isDeleting,
+  isTogglingWatch,
   t,
 }: SearchRowProps) {
+  const isWatched = search.watchlist_mode;
+
   return (
     <div
       onClick={onSelect}
@@ -245,10 +317,23 @@ function SearchRow({
           overflow: "hidden",
           textOverflow: "ellipsis",
           marginBottom: "0.25rem",
+          display: "flex",
+          alignItems: "center",
+          gap: "0.25rem",
         }}
         title={search.raw_query}
       >
-        {search.raw_query}
+        {isWatched && (
+          <span
+            title={lang === "th" ? "เฝ้าดูอยู่" : "Watching"}
+            style={{ fontSize: "0.75rem", flexShrink: 0 }}
+          >
+            {"🔔"}
+          </span>
+        )}
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {search.raw_query}
+        </span>
       </div>
       <div
         style={{
@@ -259,7 +344,7 @@ function SearchRow({
       >
         {search.last_run_at ? relativeTime(search.last_run_at, lang) : "—"}
       </div>
-      <div style={{ display: "flex", gap: "0.375rem" }}>
+      <div style={{ display: "flex", gap: "0.375rem", flexWrap: "wrap" }}>
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -278,6 +363,35 @@ function SearchRow({
           }}
         >
           {isRunning ? "..." : t("run_btn")}
+        </button>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleWatch();
+          }}
+          disabled={isTogglingWatch}
+          title={
+            isWatched
+              ? lang === "th"
+                ? "หยุดเฝ้าดู"
+                : "Stop watching"
+              : lang === "th"
+              ? "เฝ้าดูสินค้าใหม่"
+              : "Watch for new items"
+          }
+          style={{
+            padding: "0.2rem 0.5rem",
+            borderRadius: 4,
+            background: isWatched ? "#dbeafe" : "#f3f4f6",
+            color: isWatched ? COLORS.primary : COLORS.muted,
+            border: isWatched ? `1px solid ${COLORS.primary}` : "1px solid #d1d5db",
+            cursor: isTogglingWatch ? "not-allowed" : "pointer",
+            fontSize: "0.7rem",
+            fontWeight: 600,
+            opacity: isTogglingWatch ? 0.6 : 1,
+          }}
+        >
+          {isWatched ? t("watch_btn_on") : t("watch_btn_off")}
         </button>
         <button
           onClick={(e) => {

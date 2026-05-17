@@ -126,6 +126,47 @@ async def notify_price_drop(
     return await send_discord("", webhook_url=webhook_url, embeds=[embed])
 
 
+async def notify_watchlist_new_items(
+    search_name: str,
+    search_id: int,
+    new_listings: list[dict],
+    webhook_url: Optional[str] = None,
+) -> bool:
+    """Send a watchlist-new-items embed when auto-scrape finds fresh listings.
+
+    ``new_listings`` is a list of dicts with keys: title, price, url, source_id.
+    Sends at most 5 items in the embed to stay within Discord's field limit.
+    """
+    if not new_listings:
+        return False
+
+    top = new_listings[:5]
+    fields: list[dict] = []
+    for item in top:
+        fields.append({
+            "name": item.get("title", "")[:80],
+            "value": (
+                f"฿{item.get('price', 0):,.0f} — [{item.get('source_id', '')}]"
+                f"({item.get('url', '')})"
+            ),
+            "inline": False,
+        })
+
+    more = len(new_listings) - len(top)
+    footer_text = (
+        f"Find-Item watchlist | +{more} more" if more > 0 else "Find-Item watchlist"
+    )
+
+    embed = {
+        "title": f"\U0001f514 New Listings — {search_name[:60]}",
+        "color": _COLOR_INFO,
+        "footer": {"text": footer_text},
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "fields": fields,
+    }
+    return await send_discord("", webhook_url=webhook_url, embeds=[embed])
+
+
 async def notify_daily_summary(
     stats: dict,
     webhook_url: Optional[str] = None,

@@ -27,6 +27,11 @@ export const runSearch = (id: number, source_filter?: string[]) =>
 export const parseQuery = (raw_query: string) =>
   api.post<StructuredQuery>("/searches/parse", { raw_query }).then((r) => r.data);
 
+// Watchlist
+export const getWatchlist = () => api.get<Search[]>("/searches/watchlist").then((r) => r.data);
+export const toggleWatchlist = (id: number, watchlist_mode: boolean) =>
+  api.patch<Search>(`/searches/${id}/watchlist`, { watchlist_mode }).then((r) => r.data);
+
 // Dashboard
 export const getTopListings = (searchId: number, limit = 10) =>
   api.get<RankedListing[]>(`/dashboard/${searchId}/top`, { params: { limit } }).then((r) => r.data);

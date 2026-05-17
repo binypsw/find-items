@@ -11,6 +11,14 @@ celery_app.conf.beat_schedule = {
     },
 
     # ------------------------------------------------------------------ #
+    # Watchlist
+    # ------------------------------------------------------------------ #
+    "watchlist-check-every-30min": {
+        "task": "worker.tasks.watchlist_task.run_watchlist_checks",
+        "schedule": crontab(minute="*/30"),  # every 30 minutes
+    },
+
+    # ------------------------------------------------------------------ #
     # Notifications
     # ------------------------------------------------------------------ #
     "daily-summary": {
