@@ -129,6 +129,11 @@ export function ProductCard({ listing, cheapestNewPrice }: ProductCardProps) {
   const priceChangePct = listing.price_change_7d_pct;
   const hasPriceChange = priceChangePct !== null && priceChangePct !== undefined;
 
+  // NEW badge: listing first_seen_at within the last 60 minutes
+  const isNewListing =
+    listing.first_seen_at != null &&
+    Date.now() - new Date(listing.first_seen_at).getTime() < 60 * 60 * 1000;
+
   // Seller warning badge config (shown on card)
   const warningBadgeConfig =
     sellerRisk?.warning_level === "warning"
@@ -203,6 +208,26 @@ export function ProductCard({ listing, cheapestNewPrice }: ProductCardProps) {
         >
           {listing.source_id}
         </span>
+        {/* NEW badge — listing appeared within the last 60 minutes */}
+        {isNewListing && (
+          <span
+            title={t("new_listing_tooltip")}
+            style={{
+              position: "absolute",
+              top: 8,
+              left: 8,
+              padding: "0.2rem 0.45rem",
+              borderRadius: 5,
+              background: "#dc2626",
+              color: "#fff",
+              fontSize: "0.7rem",
+              fontWeight: 700,
+              letterSpacing: "0.03em",
+            }}
+          >
+            {t("new_listing_badge")}
+          </span>
+        )}
       </div>
 
       {/* Body */}

@@ -19,7 +19,9 @@ class SearchResponse(BaseModel):
     parsed_query: Optional[dict] = None
     schedule_cron: Optional[str] = None
     is_active: bool
+    watchlist_mode: bool = False
     last_run_at: Optional[datetime] = None
+    last_watchlist_run_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 

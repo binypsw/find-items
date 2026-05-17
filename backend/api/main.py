@@ -10,6 +10,7 @@ from starlette.responses import Response
 from shared.config import get_settings
 from shared.database import engine
 from api.routes.searches import router as searches_router
+from api.routes.watchlist import router as watchlist_router
 from api.routes.websocket import router as ws_router
 from api.routes.listings import router as listings_router
 from api.routes.dashboard import router as dashboard_router
@@ -37,6 +38,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.include_router(watchlist_router)  # MUST come before searches_router — prevents /api/searches/watchlist matching /{search_id}
 app.include_router(searches_router)
 app.include_router(ws_router)
 app.include_router(listings_router)
